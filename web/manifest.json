@@ -1,0 +1,11 @@
+{
+    "name": "Nawaz School System",
+    "short_name": "NawazSchool",
+    "start_url": ".",
+    "display": "standalone",
+    "background_color": "#0F3A24",
+    "theme_color": "#164E33",
+    "description": "Nawaz School Management System - Multi-Platform Education Platform",
+    "orientation": "portrait-primary",
+    "prefer_related_applications": false
+}
