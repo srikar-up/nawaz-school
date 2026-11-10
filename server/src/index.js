@@ -1755,9 +1755,10 @@ const teacherDist = path.join(ROOT, 'teacher-app', 'dist');
 const adminDist = path.join(ROOT, 'admin-panel', 'dist');
 
 function mountSpa(basePath, distDir, label) {
-  app.use(basePath, express.static(distDir));
-  app.get(`${basePath}`, (req, res) => res.redirect(`${basePath}/`));
-  app.get(`${basePath}/*`, (req, res) => {
+  // index:false so the handler below can rewrite root-absolute asset URLs.
+  app.use(basePath, express.static(distDir, { index: false }));
+
+  const serveIndex = (req, res) => {
     const indexFile = path.join(distDir, 'index.html');
     if (!fs.existsSync(indexFile)) {
       return res
@@ -1780,7 +1781,10 @@ function mountSpa(basePath, distDir, label) {
       .replaceAll('src="/', `src="${basePath}/`);
 
     return res.type('html').send(html);
-  });
+  };
+
+  app.get(`${basePath}/*`, serveIndex);
+  app.get(basePath, serveIndex);
 }
 
 mountSpa('/teacher', teacherDist, 'Teacher app');
