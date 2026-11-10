@@ -1,0 +1,30 @@
+{
+  "name": "nawaz-school-rms",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Nawaz School RMS — Teacher PWA + Admin Panel + temporary local Node/JSON data layer",
+  "workspaces": [
+    "server",
+    "teacher-app",
+    "admin-panel"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,teacher,admin -c green,blue,magenta \"npm run dev:server\" \"npm run dev:teacher\" \"npm run dev:admin\"",
+    "dev:server": "npm --workspace server run dev",
+    "dev:teacher": "npm --workspace teacher-app run dev",
+    "dev:admin": "npm --workspace admin-panel run dev",
+    "start": "npm --workspace server run start",
+    "seed": "npm --workspace server run seed",
+    "build": "npm run build:teacher && npm run build:admin",
+    "build:teacher": "npm --workspace teacher-app run build",
+    "build:admin": "npm --workspace admin-panel run build",
+    "preview": "npm run build && npm run start",
+    "test:api": "node server/smoke-test.mjs",
+    "test:ui": "node server/ui-test.mjs"
+  },
+  "devDependencies": {
+    "cf": "^0.15.0",
+    "concurrently": "^9.1.0",
+    "playwright-core": "^1.65.0"
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "name": "Nawaz School — Admin Console",
+  "short_name": "Nawaz Admin",
+  "description": "School-wide administration for students, staff, attendance, exams, communication and reporting.",
+  "id": "/",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F4F6FB",
+  "theme_color": "#4338CA",
+  "categories": ["education", "business"],
+  "lang": "en",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Attendance overview",
+      "short_name": "Attendance",
+      "url": "./attendance",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Students",
+      "short_name": "Students",
+      "url": "./students",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "name": "nawaz-school-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Temporary shared data API for the teacher PWA and admin panel. Swap this layer for Firebase later.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "seed": "node src/seed-runner.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2"
+  }
+}
