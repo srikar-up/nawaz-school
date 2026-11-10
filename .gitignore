@@ -9,3 +9,4 @@ server/data/*.tmp
 opencode.json
 serviceAccountKey.json
 *.service-account.json
+*firebase-adminsdk*.json

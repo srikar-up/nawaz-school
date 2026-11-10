@@ -1,18 +1,18 @@
-{
-  "name": "nawaz-school-server",
-  "version": "1.0.0",
-  "private": true,
-  "type": "module",
-  "description": "Temporary shared data API for the teacher PWA and admin panel. Swap this layer for Firebase later.",
-  "main": "src/index.js",
-  "scripts": {
-    "start": "node src/index.js",
-    "dev": "node --watch src/index.js",
-    "seed": "node src/seed-runner.js"
-  },
-  "dependencies": {
-    "cors": "^2.8.5",
-    "express": "^4.21.2",
-    "firebase-admin": "^14.5.0"
-  }
+﻿{
+    "name":  "nawaz-school-server",
+    "version":  "1.0.0",
+    "private":  true,
+    "type":  "module",
+    "description":  "Temporary shared data API for the teacher PWA and admin panel. Swap this layer for Firebase later.",
+    "main":  "src/index.js",
+    "scripts":  {
+                    "start":  "node --env-file-if-exists=.env src/index.js",
+                    "dev":  "node --env-file-if-exists=.env --watch src/index.js",
+                    "seed":  "node --env-file-if-exists=.env src/seed-runner.js"
+                },
+    "dependencies":  {
+                         "cors":  "^2.8.5",
+                         "express":  "^4.21.2",
+                         "firebase-admin":  "^14.5.0"
+                     }
 }

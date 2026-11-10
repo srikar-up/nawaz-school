@@ -3,6 +3,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildSeed, SCHEMA_VERSION } from './seed.js';
+import {
+  isFirestoreEnabled,
+  loadDbFromFirestore,
+  saveDbToFirestore,
+} from './firestore-store.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.resolve(__dirname, '../data');
@@ -12,6 +17,8 @@ export const storeEvents = new EventEmitter();
 storeEvents.setMaxListeners(50);
 
 let db = null;
+let lastSynced = null;
+let syncQueue = Promise.resolve();
 
 function persist() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -36,6 +43,28 @@ function loadFromDisk() {
   }
 }
 
+/**
+ * Mirrors the in-memory database into Firestore.
+ * Serialized through a promise chain so writes never overlap or arrive out of order.
+ */
+function queueFirestoreSync() {
+  if (!isFirestoreEnabled()) return;
+
+  const snapshot = db;
+  const previous = lastSynced;
+
+  syncQueue = syncQueue
+    .then(async () => {
+      const writes = await saveDbToFirestore(snapshot, previous);
+      lastSynced = structuredClone(snapshot);
+      if (writes > 0) console.log(`[firestore] synced ${writes} document(s)`);
+    })
+    .catch((error) => {
+      console.error('[firestore] sync failed:', error.message);
+    });
+}
+
+/** Synchronous boot for the local JSON backend. */
 export function initStore({ force = false } = {}) {
   if (force) db = null;
   else db = loadFromDisk();
@@ -46,6 +75,38 @@ export function initStore({ force = false } = {}) {
     console.log(`[data] Seeded ${db.students.length} students, ${db.staff.length} staff.`);
   }
   return db;
+}
+
+/**
+ * Boot loader. Uses Firestore when DATA_BACKEND=firestore, otherwise the local
+ * JSON file. Falls back to JSON if Firestore is unreachable so the API still starts.
+ */
+export async function initStoreAsync({ force = false } = {}) {
+  if (!isFirestoreEnabled()) return initStore({ force });
+
+  try {
+    const remote = force ? null : await loadDbFromFirestore();
+
+    if (remote && remote.meta?.schemaVersion === SCHEMA_VERSION) {
+      db = remote;
+      lastSynced = structuredClone(db);
+      console.log(
+        `[data] Loaded from Firestore — revision ${db.meta.revision}, ${db.students.length} students.`
+      );
+      return db;
+    }
+
+    db = buildSeed();
+    persist();
+    console.log(
+      `[data] Seeded Firestore — ${db.students.length} students, ${db.staff.length} staff.`
+    );
+    queueFirestoreSync();
+    return db;
+  } catch (error) {
+    console.warn(`[firestore] boot failed (${error.message}); falling back to local JSON.`);
+    return initStore({ force });
+  }
 }
 
 export function getDb() {
@@ -63,6 +124,7 @@ export function mutate(mutator) {
   current.meta.revision += 1;
   current.meta.updatedAt = new Date().toISOString();
   persist();
+  queueFirestoreSync();
   storeEvents.emit('change', {
     revision: current.meta.revision,
     updatedAt: current.meta.updatedAt,
@@ -74,6 +136,8 @@ export function resetStore() {
   db = buildSeed();
   db.meta.revision += 1;
   persist();
+  lastSynced = null;
+  queueFirestoreSync();
   storeEvents.emit('change', {
     revision: db.meta.revision,
     updatedAt: db.meta.updatedAt,
@@ -83,5 +147,15 @@ export function resetStore() {
 }
 
 export function getDatabaseFile() {
-  return DATABASE_FILE;
+  return isFirestoreEnabled() ? `firestore://${'school'}` : DATABASE_FILE;
+}
+
+/** Name of the active persistence backend, for logs and /api/health. */
+export function getBackendName() {
+  return isFirestoreEnabled() ? 'firestore' : 'local-json';
+}
+
+/** Resolves once every queued Firestore write has settled. */
+export function flushStore() {
+  return syncQueue;
 }
