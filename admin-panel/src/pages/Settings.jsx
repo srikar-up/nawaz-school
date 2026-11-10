@@ -22,6 +22,7 @@ import {
 import { useAppData } from '../context/AppDataContext';
 import { api } from '../lib/api';
 import Avatar from '../components/Avatar';
+import PhotoPicker from '../components/PhotoPicker';
 import Badge from '../components/Badge';
 import Modal from '../components/Modal';
 import PageHeader from '../components/PageHeader';
@@ -277,7 +278,14 @@ export default function Settings() {
               </Badge>
             </div>
             <div className="account-profile">
-              <Avatar name={user.name} size={58} />
+              <PhotoPicker
+                kind="staff"
+                id={user.id}
+                name={user.name}
+                photo={user.photo}
+                size={58}
+                onSaved={refresh}
+              />
               <div>
                 <strong>{user.name}</strong>
                 <span>{user.staffType} · {user.department}</span>

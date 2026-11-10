@@ -19,6 +19,7 @@ import {
 import { useAppData } from '../context/AppDataContext';
 import { api } from '../lib/api';
 import Avatar from '../components/Avatar';
+import PhotoPicker from '../components/PhotoPicker';
 import Badge from '../components/Badge';
 import Drawer from '../components/Drawer';
 import EmptyState from '../components/EmptyState';
@@ -432,6 +433,8 @@ export default function Staff() {
           <StaffDetail
             staff={selectedStaff}
             attendance={attendanceFor(selectedStaff.id)}
+            canEditPhoto={permissions.superAdmin || permissions.principal}
+            onPhotoSaved={refresh}
             onEdit={() => openEdit(selectedStaff)}
           />
         ) : null}
@@ -585,11 +588,19 @@ export default function Staff() {
   );
 }
 
-function StaffDetail({ staff, attendance, onEdit }) {
+function StaffDetail({ staff, attendance, onEdit, onPhotoSaved, canEditPhoto }) {
   return (
     <div className="staff-detail">
       <div className="staff-detail-hero">
-        <Avatar name={staff.name} size={70} />
+        <PhotoPicker
+          kind="staff"
+          id={staff.id}
+          name={staff.name}
+          photo={staff.photo}
+          size={70}
+          onSaved={onPhotoSaved}
+          readOnly={!canEditPhoto}
+        />
         <div>
           <h2>{staff.name}</h2>
           <p>{staff.department}</p>

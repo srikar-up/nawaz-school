@@ -1759,16 +1759,27 @@ function mountSpa(basePath, distDir, label) {
   app.get(`${basePath}`, (req, res) => res.redirect(`${basePath}/`));
   app.get(`${basePath}/*`, (req, res) => {
     const indexFile = path.join(distDir, 'index.html');
-    if (fs.existsSync(indexFile)) return res.sendFile(indexFile);
-    return res
-      .status(503)
-      .send(
-        `<html><body style="font-family:system-ui;padding:48px;background:#f8fafc;color:#1e293b">
+    if (!fs.existsSync(indexFile)) {
+      return res
+        .status(503)
+        .send(
+          `<html><body style="font-family:system-ui;padding:48px;background:#f8fafc;color:#1e293b">
           <h1>${label} build not found</h1>
           <p>Run <code>npm run build</code> from the project root, then reload.</p>
           <p>For development, use <code>npm run dev</code>.</p>
         </body></html>`
-      );
+        );
+    }
+
+    // Each app is built with base '/' so it can own its own origin in production.
+    // When previewing both from this one server, rewrite root-absolute URLs onto
+    // the mount path so assets still resolve.
+    const html = fs
+      .readFileSync(indexFile, 'utf8')
+      .replaceAll('href="/', `href="${basePath}/`)
+      .replaceAll('src="/', `src="${basePath}/`);
+
+    return res.type('html').send(html);
   });
 }
 

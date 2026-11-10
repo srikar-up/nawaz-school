@@ -442,3 +442,61 @@ npm run test:ui        # Chrome route checks + screenshots (server must be runni
 ```
 
 For the visual prototype and design rationale, see `school_rms_ui_design_system.md`, the reference images in `reffrense image/`, and the generated screenshots in `screenshots/`.
+
+---
+
+## Current architecture
+
+> The hosting notes earlier in this file describe the original single-origin
+> prototype (/teacher and /admin under one server). They are superseded.
+
+| Layer | Runs on | Notes |
+| --- | --- | --- |
+| Teacher PWA | Vite + React | own origin, built with `base: '/'` |
+| Admin panel | Vite + React | own origin, built with `base: '/'` |
+| API | Express | own origin |
+| Database | Firestore | reached only through the Firebase Admin SDK |
+| Media | Cloudinary | signed uploads, signature issued by the API |
+| Auth | Firebase Auth | `Authorization: Bearer <idToken>` |
+
+The browser never talks to Firestore: `firestore.rules` denies all client
+access and only the server holds Admin credentials.
+
+### Local development
+
+```
+npm run dev            # API :4000, teacher :5173, admin :5174
+npm run build          # builds both PWAs
+npm --workspace server run start
+```
+
+Serve both PWAs from the API server for a production preview:
+`http://localhost:4000/teacher/` and `/admin/`.
+
+### Authentication
+
+Firebase UIDs equal staff ids (`STF-001`), so a verified token maps directly
+to a staff record. Create or refresh the demo accounts:
+
+```
+npm --workspace server run create:users
+```
+
+### Profile photos
+
+1. Browser compresses to WebP (512px, quality 0.8).
+2. `POST /api/auth/cloudinary-sign` returns parameters signed for that exact
+   `public_id` - after checking the caller may edit that record.
+3. Browser uploads straight to Cloudinary.
+4. `PATCH /api/{staff|students}/:id/photo` stores
+   `{ url, publicId, updatedAt, updatedBy }`.
+
+RBAC: Principal / SuperAdmin edit anyone; a teacher edits only their own photo.
+
+### Tests
+
+```
+npm --workspace server run test:db          # Firestore architecture, isolated namespace
+node server/test/profile-photo.e2e.mjs      # needs dev servers running
+node server/test/profile-ui.e2e.mjs
+```

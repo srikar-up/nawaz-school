@@ -20,6 +20,7 @@ import { useAppData } from '../context/AppDataContext';
 import Avatar from '../components/Avatar';
 import Badge from '../components/Badge';
 import PageHead from '../components/PageHead';
+import PhotoPicker from '../components/PhotoPicker';
 import Sheet from '../components/Sheet';
 import {
   formatDate,
@@ -31,7 +32,7 @@ import {
 const PREFS_KEY = 'nawaz.teacher.preferences.v1';
 
 export default function Profile() {
-  const { data, user, logout, live, offline, lastSyncedAt } = useAppData();
+  const { data, user, logout, live, offline, lastSyncedAt, refresh } = useAppData();
   const classes = getTeacherClasses(data, user.id);
   const subjects = getSubjectsForTeacher(data, user.id);
   const [signOutOpen, setSignOutOpen] = useState(false);
@@ -59,7 +60,14 @@ export default function Profile() {
       <PageHead backTo="/more" eyebrow="Faculty profile" title="Profile" />
 
       <section className="profile-hero">
-        <Avatar name={user.name} size={76} className="profile-hero-avatar" />
+        <PhotoPicker
+          kind="staff"
+          id={user.id}
+          name={user.name}
+          photo={user.photo}
+          size={76}
+          onSaved={refresh}
+        />
         <div>
           <h2>{user.name}</h2>
           <p>{user.department}</p>

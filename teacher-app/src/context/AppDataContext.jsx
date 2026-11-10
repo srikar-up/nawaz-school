@@ -91,6 +91,19 @@ export function AppDataProvider({ children }) {
         const state = await api.getState(id);
         setData(state);
         hasDataRef.current = true;
+        // Keep the signed-in user's own record (including photo) in step with the server.
+        setSession((previous) => {
+          if (!previous) return previous;
+          const fresh = state.staff?.find((member) => member.id === previous.user.id);
+          if (!fresh) return previous;
+          const next = { ...previous, user: { ...previous.user, ...fresh } };
+          try {
+            localStorage.setItem(SESSION_KEY, JSON.stringify(next));
+          } catch {
+            /* storage may be unavailable; the in-memory session still updates */
+          }
+          return next;
+        });
         writeCache(state);
         setOffline(false);
         setLastSyncedAt(new Date());
