@@ -1,0 +1,140 @@
+rules_version = '2';
+
+// Nawaz School RMS - Firestore security rules
+//
+// Assumes every signed-in user has a document at staff/{auth.uid} with:
+//   staffId:     "STF-001"   (matches staff.id in the app)
+//   accessLevel: "SuperAdmin" | "SubAdmin" | "TeacherApp" | "NoAccess"
+//   isActive:    true | false
+//
+// The staff document ID must be the Firebase Auth UID, NOT the STF-xxx code.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function me() {
+      return get(/databases/$(database)/documents/staff/$(request.auth.uid)).data;
+    }
+
+    function active() {
+      return signedIn() && me().isActive == true;
+    }
+
+    function level() {
+      return active() ? me().accessLevel : 'NoAccess';
+    }
+
+    function isSuperAdmin() { return level() == 'SuperAdmin'; }
+    function isAdmin()      { return level() in ['SuperAdmin', 'SubAdmin']; }
+    function isTeacher()    { return level() == 'TeacherApp'; }
+    function myStaffId()    { return me().staffId; }
+
+    // ---------------- staff directory ----------------
+    match /staff/{uid} {
+      allow get: if (signedIn() && request.auth.uid == uid) || active();
+      allow list: if active();
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    // ---------------- reference data: read for staff, write for admins ----------------
+    match /classes/{id} {
+      allow read: if active();
+      allow write: if isAdmin();
+    }
+
+    match /students/{id} {
+      allow read: if active();
+      allow create, update: if isAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
+    match /subjects/{id} {
+      allow read: if active();
+      allow write: if isAdmin();
+    }
+
+    match /timetable/{id} {
+      allow read: if active();
+      allow write: if isAdmin();
+    }
+
+    match /exams/{id} {
+      allow read: if active();
+      allow write: if isAdmin();
+    }
+
+    match /classIncharges/{id} {
+      allow read: if active();
+      allow write: if isAdmin();
+    }
+
+    match /activities/{id} {
+      allow read: if active();
+      allow write: if isAdmin();
+    }
+
+    match /announcements/{id} {
+      allow read: if active();
+      allow write: if isAdmin();
+    }
+
+    match /staffAttendance/{id} {
+      allow read: if active();
+      allow create: if isAdmin()
+        || (isTeacher() && request.resource.data.staffId == myStaffId());
+      allow update, delete: if isAdmin();
+    }
+
+    // ---------------- teachers write only their own submissions ----------------
+    match /attendanceSessions/{id} {
+      allow read: if active();
+      allow create: if isAdmin()
+        || (isTeacher() && request.resource.data.submittedByStaffId == myStaffId());
+      allow update: if isAdmin()
+        || (isTeacher()
+            && resource.data.submittedByStaffId == myStaffId()
+            && request.resource.data.submittedByStaffId == myStaffId());
+      allow delete: if isAdmin();
+    }
+
+    match /testRecords/{id} {
+      allow read: if active();
+      allow create: if isAdmin()
+        || (isTeacher() && request.resource.data.enteredByStaffId == myStaffId());
+      allow update: if isAdmin()
+        || (isTeacher()
+            && resource.data.enteredByStaffId == myStaffId()
+            && request.resource.data.enteredByStaffId == myStaffId());
+      allow delete: if isAdmin();
+    }
+
+    // ---------------- tickets: sender sees own, admins see all ----------------
+    match /rmsTickets/{id} {
+      allow read: if isAdmin()
+        || (active() && resource.data.senderStaffId == myStaffId());
+      allow create: if active()
+        && request.resource.data.senderStaffId == myStaffId();
+      allow update: if isAdmin()
+        || (active()
+            && resource.data.senderStaffId == myStaffId()
+            && request.resource.data.senderStaffId == myStaffId()
+            && request.resource.data.status == resource.data.status);
+      allow delete: if isSuperAdmin();
+    }
+
+    // ---------------- app metadata ----------------
+    match /meta/{id} {
+      allow read: if active();
+      allow write: if isSuperAdmin();
+    }
+
+    // ---------------- everything else is closed ----------------
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

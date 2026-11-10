@@ -7,3 +7,5 @@ server/data/*.tmp
 .env
 .env.local
 opencode.json
+serviceAccountKey.json
+*.service-account.json
