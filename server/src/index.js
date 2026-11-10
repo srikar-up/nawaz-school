@@ -1,4 +1,4 @@
-﻿import crypto from 'node:crypto';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -582,7 +582,7 @@ app.patch('/api/staff/:id', requireActor, requireSuperAdmin, (req, res) => {
       'Updated staff access',
       'Staff',
       target.code,
-      `${target.name} Â· ${target.accessLevel}${target.isActive ? '' : ' Â· inactive'}`
+      `${target.name} · ${target.accessLevel}${target.isActive ? '' : ' · inactive'}`
     );
   });
 
@@ -712,7 +712,7 @@ app.post('/api/attendance', requireActor, (req, res) => {
       'Attendance submitted',
       'Attendance',
       classIdSection,
-      `${classIdSection} Â· ${date} Â· ${sessionType} Â· ${cleanEntries.filter((entry) => entry.status === 'present').length}/${cleanEntries.length} present`
+      `${classIdSection} · ${date} · ${sessionType} · ${cleanEntries.filter((entry) => entry.status === 'present').length}/${cleanEntries.length} present`
     );
   });
 
@@ -826,7 +826,7 @@ app.put('/api/timetable', requireActor, requireAdmin, (req, res) => {
       existing ? 'Updated timetable slot' : 'Added timetable slot',
       'Timetable',
       entry.id,
-      `${entry.classIdSection} Â· ${entry.dayName} P${entry.periodNumber} Â· ${entry.subject}`
+      `${entry.classIdSection} · ${entry.dayName} P${entry.periodNumber} · ${entry.subject}`
     );
   });
 
@@ -849,7 +849,7 @@ app.delete('/api/timetable/:id', requireActor, requireAdmin, (req, res) => {
       'Removed timetable slot',
       'Timetable',
       entry.id,
-      `${entry.classIdSection} Â· ${entry.dayName} P${entry.periodNumber}`
+      `${entry.classIdSection} · ${entry.dayName} P${entry.periodNumber}`
     );
   });
 
@@ -874,7 +874,7 @@ app.patch('/api/timetable/settings', requireActor, requireAdmin, (req, res) => {
       ),
     ].sort((a, b) => a - b);
     if (!days.length) {
-      return res.status(400).json({ error: 'Choose at least one working day (Mondayâ€“Saturday).' });
+      return res.status(400).json({ error: 'Choose at least one working day (Monday–Saturday).' });
     }
     if (days.length !== body.days.length) {
       return res.status(400).json({ error: 'Working days must be unique values from 1 to 6.' });
@@ -941,7 +941,7 @@ app.patch('/api/timetable/settings', requireActor, requireAdmin, (req, res) => {
       status === 'published' ? 'Published timetable' : 'Updated timetable settings',
       'Timetable',
       'timetable-settings',
-      `${days.length} days Â· ${periods.length} periods Â· editing until ${editUntil}${removed ? ` Â· ${removed} slot(s) removed` : ''}`
+      `${days.length} days · ${periods.length} periods · editing until ${editUntil}${removed ? ` · ${removed} slot(s) removed` : ''}`
     );
   });
 
@@ -1005,7 +1005,7 @@ app.post('/api/exams', requireActor, requireAdmin, (req, res) => {
       'Scheduled assessment',
       'Exam',
       exam.id,
-      `${exam.title} Â· ${exam.classIdSection}`
+      `${exam.title} · ${exam.classIdSection}`
     );
   });
 
@@ -1123,7 +1123,7 @@ app.post('/api/exams/:id/marks', requireActor, (req, res) => {
       'Submitted assessment marks',
       'Exam',
       exam.id,
-      `${exam.title} Â· ${exam.classIdSection} Â· ${clean.length} students`
+      `${exam.title} · ${exam.classIdSection} · ${clean.length} students`
     );
   });
 
@@ -1162,7 +1162,7 @@ app.patch('/api/subjects/:id', requireActor, requireAdmin, (req, res) => {
       'Assigned subject teacher',
       'Subject',
       subject.id,
-      `${subject.subjectName} Â· ${subject.classIdSection} â†’ ${teacher.name}`
+      `${subject.subjectName} · ${subject.classIdSection} → ${teacher.name}`
     );
   });
 
@@ -1199,7 +1199,7 @@ app.post('/api/subjects/:id/chapters', requireActor, (req, res) => {
       'Updated syllabus progress',
       'Syllabus',
       subject.id,
-      `${subject.subjectName} Â· ${target.chapters[chapterIndex].title} â†’ ${status.replace('_', ' ')}`
+      `${subject.subjectName} · ${target.chapters[chapterIndex].title} → ${status.replace('_', ' ')}`
     );
   });
 
@@ -1246,7 +1246,7 @@ app.post('/api/assignments', requireActor, (req, res) => {
       'Created assignment',
       'Assignment',
       assignment.id,
-      `${assignment.title} Â· ${assignment.classIdSection}`
+      `${assignment.title} · ${assignment.classIdSection}`
     );
   });
   return res.status(201).json({ assignment });
@@ -1272,7 +1272,7 @@ app.patch('/api/assignments/:id', requireActor, (req, res) => {
       'Updated assignment',
       'Assignment',
       target.id,
-      `${target.title} â†’ ${target.status}`
+      `${target.title} → ${target.status}`
     );
   });
   return res.json({ assignment: getDb().assignments.find((entry) => entry.id === assignment.id) });
@@ -1416,7 +1416,7 @@ app.post('/api/rms', requireActor, (req, res) => {
       'Raised a request',
       'Request',
       ticket.ticketNo,
-      `${ticket.category} Â· ${ticket.subject}`
+      `${ticket.category} · ${ticket.subject}`
     );
   });
   return res.status(201).json({ ticket });
@@ -1451,7 +1451,7 @@ app.patch('/api/rms/:id', requireActor, requireAdmin, (req, res) => {
       'Updated request status',
       'Request',
       target.ticketNo,
-      `${target.subject} â†’ ${target.status}`
+      `${target.subject} → ${target.status}`
     );
   });
   return res.json({ ticket: getDb().rmsTickets.find((entry) => entry.id === ticket.id) });
@@ -1575,14 +1575,14 @@ app.post('/api/import', requireActor, requireSuperAdmin, (req, res) => {
         if (!entry) return key;
         return `${key}:${entry.after}`;
       })
-      .join(' Â· ');
+      .join(' · ');
     addActivity(
       db,
       req.actor,
       'Imported CSV data',
       'Data exchange',
       `import-${Date.now()}`,
-      `${mode} Â· ${countText}${ignored.length ? ` Â· ignored:${ignored.join(',')}` : ''}`
+      `${mode} · ${countText}${ignored.length ? ` · ignored:${ignored.join(',')}` : ''}`
     );
   });
 
@@ -1656,16 +1656,15 @@ initStoreAsync()
     app.listen(PORT, () => {
       const db = getDb();
       console.log('');
-      console.log('  Nawaz School RMS â€” local prototype server');
+      console.log('  Nawaz School RMS - local prototype server');
       console.log(`  API:      http://localhost:${PORT}/api/health`);
       console.log(`  Launcher: http://localhost:${PORT}/`);
       console.log(`  Teacher:  http://localhost:${PORT}/teacher/  (dev: http://localhost:5173/)`);
       console.log(`  Admin:    http://localhost:${PORT}/admin/    (dev: http://localhost:5174/)`);
       console.log(`  Data:     ${getDatabaseFile()}`);
       console.log(
-        `  Seed:     revision ${db.meta.revision} Â· ${db.students.length} students Â· ${db.staff.length} staff`
+        `  Seed:     revision ${db.meta.revision} - ${db.students.length} students - ${db.staff.length} staff`
       );
       console.log('');
     });
   });
-

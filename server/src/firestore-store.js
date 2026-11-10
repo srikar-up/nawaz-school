@@ -15,7 +15,7 @@ import { adminDb } from './firebase.js';
  * Documents rather than one big blob because a Firestore document caps at 1 MiB
  * and the seeded database is already ~345 KB.
  */
-export const FIRESTORE_ROOT = 'school';
+export const FIRESTORE_ROOT = process.env.FIRESTORE_ROOT || 'school';
 
 export const COLLECTION_KEYS = [
   'staff',

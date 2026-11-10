@@ -1,16 +1,19 @@
-import { EventEmitter } from 'node:events';
+﻿import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildSeed, SCHEMA_VERSION } from './seed.js';
 import {
+  FIRESTORE_ROOT,
   isFirestoreEnabled,
   loadDbFromFirestore,
   saveDbToFirestore,
 } from './firestore-store.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = path.resolve(__dirname, '../data');
+const DATA_DIR = process.env.DATA_DIR
+  ? path.resolve(process.env.DATA_DIR)
+  : path.resolve(__dirname, '../data');
 const DATABASE_FILE = path.join(DATA_DIR, 'db.json');
 
 export const storeEvents = new EventEmitter();
@@ -33,7 +36,7 @@ function loadFromDisk() {
     const raw = fs.readFileSync(DATABASE_FILE, 'utf8');
     const parsed = JSON.parse(raw);
     if (parsed?.meta?.schemaVersion !== SCHEMA_VERSION) {
-      console.log('[data] Schema changed — reseeding demo database.');
+      console.log('[data] Schema changed - reseeding demo database.');
       return null;
     }
     return parsed;
@@ -46,9 +49,10 @@ function loadFromDisk() {
 /**
  * Mirrors the in-memory database into Firestore.
  * Serialized through a promise chain so writes never overlap or arrive out of order.
+ * Returns the queued promise so callers can await durability.
  */
 function queueFirestoreSync() {
-  if (!isFirestoreEnabled()) return;
+  if (!isFirestoreEnabled()) return Promise.resolve();
 
   const snapshot = db;
   const previous = lastSynced;
@@ -62,6 +66,8 @@ function queueFirestoreSync() {
     .catch((error) => {
       console.error('[firestore] sync failed:', error.message);
     });
+
+  return syncQueue;
 }
 
 /** Synchronous boot for the local JSON backend. */
@@ -80,6 +86,9 @@ export function initStore({ force = false } = {}) {
 /**
  * Boot loader. Uses Firestore when DATA_BACKEND=firestore, otherwise the local
  * JSON file. Falls back to JSON if Firestore is unreachable so the API still starts.
+ *
+ * The initial seed upload is awaited: a process that exits right after seeding
+ * must not lose the write.
  */
 export async function initStoreAsync({ force = false } = {}) {
   if (!isFirestoreEnabled()) return initStore({ force });
@@ -91,7 +100,7 @@ export async function initStoreAsync({ force = false } = {}) {
       db = remote;
       lastSynced = structuredClone(db);
       console.log(
-        `[data] Loaded from Firestore — revision ${db.meta.revision}, ${db.students.length} students.`
+        `[data] Loaded from Firestore - revision ${db.meta.revision}, ${db.students.length} students.`
       );
       return db;
     }
@@ -99,9 +108,9 @@ export async function initStoreAsync({ force = false } = {}) {
     db = buildSeed();
     persist();
     console.log(
-      `[data] Seeded Firestore — ${db.students.length} students, ${db.staff.length} staff.`
+      `[data] Seeded Firestore - ${db.students.length} students, ${db.staff.length} staff.`
     );
-    queueFirestoreSync();
+    await queueFirestoreSync();
     return db;
   } catch (error) {
     console.warn(`[firestore] boot failed (${error.message}); falling back to local JSON.`);
@@ -147,7 +156,7 @@ export function resetStore() {
 }
 
 export function getDatabaseFile() {
-  return isFirestoreEnabled() ? `firestore://${'school'}` : DATABASE_FILE;
+  return isFirestoreEnabled() ? `firestore://${FIRESTORE_ROOT}` : DATABASE_FILE;
 }
 
 /** Name of the active persistence backend, for logs and /api/health. */
