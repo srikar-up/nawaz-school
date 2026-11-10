@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applicationDefault, cert, getApps, initializeApp } from 'firebase-admin/app';
+import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -65,6 +66,12 @@ export function adminDb() {
     db.settings({ ignoreUndefinedProperties: true });
   }
   return db;
+}
+
+/** Firebase Auth (Admin) - used to verify ID tokens from the PWAs. */
+export function adminAuth() {
+  getFirebaseApp();
+  return getAuth();
 }
 
 /** True when the server has credentials it can actually use. */

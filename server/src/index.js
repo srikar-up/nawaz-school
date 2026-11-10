@@ -5,6 +5,14 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import cors from 'cors';
 import { getBackendName, getDb, getDatabaseFile, initStoreAsync, mutate, resetStore, storeEvents } from './store.js';
+import { requireActor } from './auth.js';
+import {
+  PHOTO_FOLDERS,
+  buildSignedUpload,
+  destroyAsset,
+  isCloudinaryConfigured,
+  isOwnCloudinaryUrl,
+} from './cloudinary.js';
 import {
   IMPORT_COLLECTIONS,
   IMPORT_COLLECTION_KEYS,
@@ -195,17 +203,6 @@ app.post('/api/auth/login', (req, res) => {
     },
   });
 });
-
-function requireActor(req, res, next) {
-  const db = getDb();
-  const staffId = str(req.get('x-staff-id'));
-  const actor = db.staff.find((member) => member.id === staffId);
-  if (!actor || !actor.isActive) {
-    return res.status(401).json({ error: 'Your session is no longer valid. Please sign in again.' });
-  }
-  req.actor = actor;
-  return next();
-}
 
 function requireAdmin(req, res, next) {
   if (!isAdmin(req.actor)) {
@@ -1610,6 +1607,145 @@ app.post('/api/reset', requireActor, requireSuperAdmin, (req, res) => {
 /* ------------------------------------------------------------------ */
 /* Static apps and landing page                                       */
 /* ------------------------------------------------------------------ */
+
+/* ------------------------------------------------------------------ */
+/* Identity and profile photos                                         */
+/* ------------------------------------------------------------------ */
+
+function isPrincipal(staff) {
+  return String(staff?.staffType || '').toLowerCase() === 'principal';
+}
+
+/**
+ * Photo mutation policy.
+ *   - Principal / SuperAdmin: any staff or student photo.
+ *   - TeacherApp: only their own staff photo (token uid === staff id).
+ *   - Everyone else: read-only.
+ */
+function canManagePhoto(actor, kind, targetId) {
+  if (isSuperAdmin(actor) || isPrincipal(actor)) return true;
+  return kind === 'staff' && actor.id === targetId;
+}
+
+function findPhotoTarget(db, kind, id) {
+  const collection = kind === 'staff' ? db.staff : db.students;
+  const index = collection.findIndex((entry) => entry.id === id);
+  return index === -1 ? null : { collection, index };
+}
+
+app.get('/api/me', requireActor, (req, res) => {
+  const db = getDb();
+  res.json({
+    user: req.actor,
+    permissions: {
+      admin: isAdmin(req.actor),
+      superAdmin: isSuperAdmin(req.actor),
+      principal: isPrincipal(req.actor),
+      teacherClassIds: teacherClassIds(db, req.actor.id),
+    },
+  });
+});
+
+app.post('/api/auth/cloudinary-sign', requireActor, (req, res) => {
+  const kind = str(req.body?.kind);
+  const id = str(req.body?.id);
+
+  if (!PHOTO_FOLDERS[kind] || !id) {
+    return res.status(400).json({ error: 'A valid kind (staff|students) and id are required.' });
+  }
+  if (!isCloudinaryConfigured()) {
+    return res.status(503).json({ error: 'Photo uploads are not configured on the server.' });
+  }
+  if (!canManagePhoto(req.actor, kind, id)) {
+    return res.status(403).json({ error: 'You can only change your own profile photo.' });
+  }
+  if (!findPhotoTarget(getDb(), kind, id)) {
+    return res.status(404).json({ error: 'No such record.' });
+  }
+
+  return res.json(buildSignedUpload({ kind, id }));
+});
+
+function registerPhotoRoutes(kind, routePath) {
+  app.patch(routePath, requireActor, (req, res) => {
+    const id = str(req.params.id);
+    const url = str(req.body?.url);
+    const publicId = str(req.body?.publicId);
+
+    if (!canManagePhoto(req.actor, kind, id)) {
+      return res.status(403).json({ error: 'You can only change your own profile photo.' });
+    }
+    if (!url || !publicId) {
+      return res.status(400).json({ error: 'url and publicId are required.' });
+    }
+    if (!isOwnCloudinaryUrl(url)) {
+      return res.status(400).json({ error: 'That image URL is not from this school account.' });
+    }
+
+    const expectedPublicId = `${PHOTO_FOLDERS[kind]}/${id}`;
+    if (publicId !== expectedPublicId) {
+      return res.status(400).json({ error: 'That image does not belong to this record.' });
+    }
+
+    const db = getDb();
+    const target = findPhotoTarget(db, kind, id);
+    if (!target) return res.status(404).json({ error: 'No such record.' });
+
+    const previous = target.collection[target.index].photo;
+
+    mutate((current) => {
+      const record = kind === 'staff'
+        ? current.staff.find((entry) => entry.id === id)
+        : current.students.find((entry) => entry.id === id);
+      record.photo = {
+        url,
+        publicId,
+        updatedAt: isoNow(),
+        updatedBy: req.actor.id,
+      };
+    });
+
+    if (previous?.publicId && previous.publicId !== publicId) {
+      destroyAsset(previous.publicId).catch((error) =>
+        console.error('[cloudinary] could not remove the old photo:', error.message)
+      );
+    }
+
+    const updated = findPhotoTarget(getDb(), kind, id);
+    return res.json({ photo: updated.collection[updated.index].photo });
+  });
+
+  app.delete(routePath, requireActor, (req, res) => {
+    const id = str(req.params.id);
+
+    if (!canManagePhoto(req.actor, kind, id)) {
+      return res.status(403).json({ error: 'You can only change your own profile photo.' });
+    }
+
+    const db = getDb();
+    const target = findPhotoTarget(db, kind, id);
+    if (!target) return res.status(404).json({ error: 'No such record.' });
+
+    const previous = target.collection[target.index].photo;
+    if (!previous) return res.json({ photo: null, message: 'There was no photo to remove.' });
+
+    mutate((current) => {
+      const record = kind === 'staff'
+        ? current.staff.find((entry) => entry.id === id)
+        : current.students.find((entry) => entry.id === id);
+      delete record.photo;
+    });
+
+    destroyAsset(previous.publicId).catch((error) =>
+      console.error('[cloudinary] could not remove the photo:', error.message)
+    );
+
+    return res.json({ photo: null });
+  });
+}
+
+registerPhotoRoutes('staff', '/api/staff/:id/photo');
+registerPhotoRoutes('students', '/api/students/:id/photo');
 
 app.use('/api', (req, res) => {
   res.status(404).json({ error: 'API route not found.' });

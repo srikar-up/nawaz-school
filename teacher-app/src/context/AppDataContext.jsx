@@ -71,6 +71,9 @@ export function AppDataProvider({ children }) {
   }, []);
 
   const logout = useCallback(() => {
+    api.logout?.().catch(() => {
+      /* Firebase may already have signed out; local state is what matters. */
+    });
     localStorage.removeItem(SESSION_KEY);
     localStorage.removeItem(CACHE_KEY);
     setSession(null);
@@ -141,9 +144,9 @@ export function AppDataProvider({ children }) {
     setLoading(!hasDataRef.current);
     refresh();
 
-    const connect = () => {
+    const connect = async () => {
       try {
-        source = new EventSource(api.eventUrl(staffId));
+        source = new EventSource(await api.eventUrl(staffId));
         source.addEventListener('ready', () => {
           if (!cancelled) {
             setLive(true);
