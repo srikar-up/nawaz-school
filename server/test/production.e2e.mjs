@@ -42,12 +42,34 @@ async function login(baseUrl, email, password) {
     }
   });
 
+  page.on('response', (response) => {
+    if (response.url().includes(API_HOST)) {
+      const call = apiCalls.find(
+        (entry) => entry.path === new URL(response.url()).pathname && entry.status === undefined
+      );
+      if (call) call.status = response.status();
+    }
+  });
+
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('input[type="email"]', { timeout: 30000 });
   await page.fill('input[type="email"]', email);
   await page.fill('input[type="password"]', password);
   await page.click('button[type="submit"]');
-  await page.waitForTimeout(6000);
+
+  // A cold Worker can take several seconds to hydrate from Firestore.
+  await page
+    .waitForFunction(
+      () =>
+        Boolean(
+          localStorage.getItem('nawaz.teacher.session.v1') ||
+            localStorage.getItem('nawaz.admin.session.v1')
+        ),
+      null,
+      { timeout: 40000 }
+    )
+    .catch(() => {});
+  await page.waitForTimeout(2500);
 
   const text = (await page.locator('body').innerText()).replace(/\s+/g, ' ').slice(0, 120);
   const authenticated = await page.evaluate(() =>

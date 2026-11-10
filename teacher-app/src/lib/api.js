@@ -1,4 +1,10 @@
-import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import {
+  GoogleAuthProvider,
+  linkWithCredential,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  signOut,
+} from 'firebase/auth';
 import { auth } from './firebase';
 
 const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
@@ -46,12 +52,80 @@ async function request(path, { method = 'GET', body, signal } = {}) {
   return payload;
 }
 
+/**
+ * Holds a Google credential returned by a previous popup attempt, so the next
+ * password sign-in can link it silently. Without this, Firebase's default
+ * "one account per email" rule makes Google sign-in fail for every staff member
+ * who already has a password: they sign in once, and Google works afterwards.
+ */
+let pendingGoogleCredential = null;
+
+function googleError(error) {
+  switch (error?.code) {
+    case 'auth/popup-closed-by-user':
+    case 'auth/cancelled-popup-request':
+      return new Error('Google sign-in was cancelled.');
+    case 'auth/popup-blocked':
+      return new Error('Your browser blocked the Google window. Allow pop-ups and try again.');
+    case 'auth/unauthorized-domain':
+      return new Error(
+        'This site is not authorized for Google sign-in yet. Ask the administrator to add it in Firebase Authentication → Settings → Authorized domains.'
+      );
+    case 'auth/operation-not-allowed':
+      return new Error('Google sign-in is not enabled for this school project yet.');
+    case 'auth/account-exists-with-different-credential':
+      pendingGoogleCredential = error.credential || null;
+      return new Error(
+        'This email already uses a password. Sign in with your password once below — Google will be linked automatically, and next time you can skip the password.'
+      );
+    default:
+      return new Error(error?.message || 'Google sign-in failed.');
+  }
+}
+
 export const api = {
   /** Signs in with Firebase Auth; the ID token is sent as a Bearer header. */
   login: async (email, password) => {
     const credential = await signInWithEmailAndPassword(auth, email, password);
+
+    // Complete a Google link left pending by an earlier popup attempt.
+    if (pendingGoogleCredential) {
+      const pending = pendingGoogleCredential;
+      pendingGoogleCredential = null;
+      try {
+        await linkWithCredential(credential.user, pending);
+        await credential.user.getIdToken(true);
+      } catch {
+        /* already linked, or the provider is gone - password login still works */
+      }
+    }
+
     await credential.user.getIdToken();
     return request('/api/me');
+  },
+
+  /**
+   * Google sign-in. The server matches the Google account's verified email
+   * against a staff record; an unknown email is rejected with 403.
+   */
+  loginWithGoogle: async () => {
+    let result;
+    try {
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
+      result = await signInWithPopup(auth, provider);
+    } catch (error) {
+      throw googleError(error);
+    }
+
+    try {
+      await result.user.getIdToken();
+      return await request('/api/me');
+    } catch (error) {
+      // Not a staff account: do not leave a half-signed-in Google session.
+      await signOut(auth).catch(() => {});
+      throw error;
+    }
   },
   me: () => request('/api/me'),
   logout: () => signOut(auth),

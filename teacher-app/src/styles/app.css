@@ -5799,3 +5799,18 @@
 .btn-sm { padding: 4px 10px; font-size: 12px; }
 @keyframes photo-spin { to { transform: rotate(360deg); } }
 .spin { animation: photo-spin 1s linear infinite; }
+
+/* ---- Google sign-in ---- */
+.google-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 10px;
+  background: #ffffff;
+  color: #0f172a;
+  border: 1px solid #cbd5e1;
+  font-weight: 600;
+}
+.google-btn:hover:not(:disabled) { background: #f8fafc; border-color: #94a3b8; }
+.google-btn:disabled { opacity: 0.65; }

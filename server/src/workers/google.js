@@ -299,7 +299,15 @@ export async function lookupIdToken(idToken) {
   }
 
   const account = body.users[0];
-  const user = { uid: account.localId, email: account.email, ...account };
+
+  // Identity Toolkit returns camelCase fields; make the object look like the
+  // decoded ID token the Node Admin SDK produces (uid + email_verified).
+  const user = {
+    uid: account.localId,
+    email: account.email,
+    email_verified: Boolean(account.emailVerified),
+    ...account,
+  };
 
   // Cache until the token's own expiry, capped at five minutes.
   let expiresAt = Date.now() + 5 * 60_000;

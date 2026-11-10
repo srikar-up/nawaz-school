@@ -27,6 +27,25 @@ export async function verifyIdToken(token) {
  * scripts/create-auth-users.mjs, so the token identifies the person directly.
  * Nothing about identity is read from the request body or headers.
  */
+/**
+ * Resolves the staff record a verified token belongs to.
+ *
+ * Password accounts were created with uid === staff id. Google sign-in creates
+ * a Firebase user whose uid is Google's, so the verified email is the fallback.
+ * An unverified email is never trusted for that mapping.
+ */
+export function resolveStaff(db, decoded) {
+  const direct = db.staff.find((member) => member.id === decoded?.uid);
+  if (direct) return direct;
+
+  const email = String(decoded?.email || '').trim().toLowerCase();
+  if (!decoded?.email_verified || !email) return null;
+
+  return (
+    db.staff.find((member) => String(member.email || '').trim().toLowerCase() === email) || null
+  );
+}
+
 export async function requireActor(req, res, next) {
   const token = extractBearer(req);
 
@@ -45,7 +64,11 @@ export async function requireActor(req, res, next) {
   }
 
   const db = getDb();
-  const actor = db.staff.find((member) => member.id === decoded.uid);
+
+  // Password accounts have uid === staff id. Google sign-in creates a Firebase
+  // user whose uid is Google's, so fall back to the verified email address.
+  // Unverified emails are never trusted for this mapping.
+  const actor = resolveStaff(db, decoded);
 
   if (!actor) {
     return res

@@ -123,26 +123,42 @@ export function AppDataProvider({ children }) {
     [logout]
   );
 
-  const login = useCallback(async (email, password) => {
+  const finishLogin = useCallback(async (result) => {
+    localStorage.setItem(SESSION_KEY, JSON.stringify(result));
+    setSession(result);
+    staffIdRef.current = result.user.id;
+    const state = await api.getState(result.user.id);
+    setData(state);
+    hasDataRef.current = true;
+    writeCache(state);
+    setLastSyncedAt(new Date());
+    setOffline(false);
+    setLoading(false);
+    return result;
+  }, []);
+
+  const login = useCallback(
+    async (email, password) => {
+      setLoading(true);
+      try {
+        return await finishLogin(await api.login(email, password));
+      } catch (error) {
+        setLoading(false);
+        throw error;
+      }
+    },
+    [finishLogin]
+  );
+
+  const loginWithGoogle = useCallback(async () => {
     setLoading(true);
     try {
-      const result = await api.login(email, password);
-      localStorage.setItem(SESSION_KEY, JSON.stringify(result));
-      setSession(result);
-      staffIdRef.current = result.user.id;
-      const state = await api.getState(result.user.id);
-      setData(state);
-      hasDataRef.current = true;
-      writeCache(state);
-      setLastSyncedAt(new Date());
-      setOffline(false);
-      setLoading(false);
-      return result;
+      return await finishLogin(await api.loginWithGoogle());
     } catch (error) {
       setLoading(false);
       throw error;
     }
-  }, []);
+  }, [finishLogin]);
 
   useEffect(() => {
     if (!staffId) {
@@ -218,6 +234,7 @@ export function AppDataProvider({ children }) {
       live,
       lastSyncedAt,
       login,
+      loginWithGoogle,
       logout,
       refresh,
       notify,
@@ -234,6 +251,7 @@ export function AppDataProvider({ children }) {
       live,
       lastSyncedAt,
       login,
+      loginWithGoogle,
       logout,
       refresh,
       notify,

@@ -482,6 +482,30 @@ to a staff record. Create or refresh the demo accounts:
 npm --workspace server run create:users
 ```
 
+### Google sign-in
+
+Both login screens offer **Continue with Google** next to the password form.
+
+- The server resolves the Google account by its **verified email** when the uid
+  is not a staff id (`resolveStaff` in `server/src/auth.js`). An unknown or
+  unverified email gets `403 No staff profile is linked to this account`.
+- Firebase's default "one account per email" rule means the first Google
+  attempt for an existing password account fails with
+  `account-exists-with-different-credential`. The client keeps that credential
+  and links it silently on the next password sign-in, so Google is passwordless
+  from then on.
+- To skip that one-time password step, set **Firebase Authentication →
+  Settings → User account linking → Create multiple accounts for each identity
+  provider**. The email mapping then handles Google users directly.
+- Required in the Firebase console, once per origin:
+  - **Authentication → Sign-in method → Google** enabled.
+  - **Authentication → Settings → Authorized domains**: add
+    `nawaz-school-teacher.srikarsensai.workers.dev` and
+    `nawaz-school-admin.srikarsensai.workers.dev`.
+
+No Google client secret exists in either app; the popup is handled entirely by
+Firebase Auth, and the API still sees only an ID token.
+
 ### Profile photos
 
 1. Browser compresses to WebP (512px, quality 0.8).
@@ -502,6 +526,7 @@ node server/test/profile-ui.e2e.mjs
 node server/test/live-sync.e2e.mjs
 node server/test/photo-cleanup.e2e.mjs
 node server/test/production.e2e.mjs         # hits the three deployed Workers
+node server/test/google-mapping.e2e.mjs     # verified-email identity path, self-cleaning
 ```
 
 ---
@@ -554,6 +579,10 @@ npx wrangler secret bulk server/.dev.vars --config server/wrangler.jsonc
 
 Variables (not secrets) live in `server/wrangler.jsonc`: `RUNTIME=workers`,
 `DATA_BACKEND=firestore`, `DISABLE_FILE_CACHE=true`.
+
+After a `wrangler rollback`, re-run the `secret bulk` command: a Worker version
+created earlier can predate secrets added later, and the API will fail to boot
+without them. A boot that exceeds 20s now returns `503` instead of hanging.
 
 ### Why the API has a REST Firebase layer
 

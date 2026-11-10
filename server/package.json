@@ -10,7 +10,9 @@
                     "dev":  "node --env-file-if-exists=.env --watch src/index.js",
                     "seed":  "node --env-file-if-exists=.env src/seed-runner.js",
                     "test:db":  "node --test test/firestore.test.mjs",
+                    "test:auth":  "node --test test/auth-mapping.test.mjs",
                     "create:users":  "node --env-file-if-exists=.env scripts/create-auth-users.mjs",
+                    "test:google":  "node --env-file-if-exists=.env test/google-mapping.e2e.mjs",
                     "deploy":  "wrangler deploy --config wrangler.jsonc"
                 },
     "dependencies":  {
