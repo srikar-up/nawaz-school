@@ -10,7 +10,8 @@
                     "dev":  "node --env-file-if-exists=.env --watch src/index.js",
                     "seed":  "node --env-file-if-exists=.env src/seed-runner.js",
                     "test:db":  "node --test test/firestore.test.mjs",
-                    "create:users":  "node --env-file-if-exists=.env scripts/create-auth-users.mjs"
+                    "create:users":  "node --env-file-if-exists=.env scripts/create-auth-users.mjs",
+                    "deploy":  "wrangler deploy --config wrangler.jsonc"
                 },
     "dependencies":  {
                          "cors":  "^2.8.5",

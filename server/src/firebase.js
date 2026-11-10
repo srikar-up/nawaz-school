@@ -5,7 +5,13 @@ import { applicationDefault, cert, getApps, initializeApp } from 'firebase-admin
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const __dirname = (() => {
+  try {
+    return path.dirname(fileURLToPath(import.meta.url));
+  } catch {
+    return '/';
+  }
+})();
 const DEFAULT_KEY_FILE = path.resolve(__dirname, '../serviceAccountKey.json');
 
 /**

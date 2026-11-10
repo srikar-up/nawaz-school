@@ -6,6 +6,7 @@ import express from 'express';
 import cors from 'cors';
 import { getBackendName, getDb, getDatabaseFile, initStoreAsync, mutate, resetStore, storeEvents } from './store.js';
 import { requireActor } from './auth.js';
+import { corsDelegate, hasConfiguredOrigins } from './cors.js';
 import {
   PHOTO_FOLDERS,
   buildSignedUpload,
@@ -28,12 +29,18 @@ import {
   validatePeriods,
 } from './timetable.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const __dirname = (() => {
+  try {
+    return path.dirname(fileURLToPath(import.meta.url));
+  } catch {
+    return '/';
+  }
+})();
 const ROOT = path.resolve(__dirname, '../..');
 const PORT = Number(process.env.PORT || 4000);
 
 const app = express();
-app.use(cors());
+app.use(cors(corsDelegate));
 app.use(express.json({ limit: '8mb' }));
 
 const ADMIN_LEVELS = new Set(['SuperAdmin', 'SubAdmin']);
@@ -232,13 +239,8 @@ app.get('/api/state', requireActor, (req, res) => {
   });
 });
 
-app.get('/api/events', (req, res) => {
+app.get('/api/events', requireActor, (req, res) => {
   const db = getDb();
-  const staffId = str(req.query.staffId);
-  const actor = db.staff.find((member) => member.id === staffId);
-  if (!actor || !actor.isActive) {
-    return res.status(401).json({ error: 'Invalid live sync session.' });
-  }
 
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -386,6 +388,8 @@ app.delete('/api/students/:id', requireActor, requireAdmin, (req, res) => {
       student.name
     );
   });
+
+  discardPhoto(student.photo, 'student deleted');
 
   return res.json({ ok: true });
 });
@@ -609,6 +613,9 @@ app.delete('/api/staff/:id', requireActor, requireSuperAdmin, (req, res) => {
     current.staff = current.staff.filter((entry) => entry.id !== member.id);
     addActivity(current, req.actor, 'Removed staff member', 'Staff', member.code, member.name);
   });
+
+  discardPhoto(member.photo, 'staff deleted');
+
   return res.json({ ok: true });
 });
 
@@ -1521,6 +1528,14 @@ app.post('/api/import', requireActor, requireSuperAdmin, (req, res) => {
 
   const { merged, summary } = mergeImport(current, incoming, mode);
 
+  // Remember which photos existed before the import so any record that the
+  // import removes can have its Cloudinary asset cleaned up afterwards.
+  const photosBefore = new Map(
+    [...current.staff, ...current.students]
+      .filter((entry) => entry.photo?.publicId)
+      .map((entry) => [entry.id, entry.photo])
+  );
+
   // Keep server-owned fields stable. The import may change school identity,
   // but the running server owns the schema version, revision and current day.
   merged.meta = {
@@ -1584,6 +1599,11 @@ app.post('/api/import', requireActor, requireSuperAdmin, (req, res) => {
   });
 
   const db = getDb();
+  const survivors = new Set([...db.staff, ...db.students].map((entry) => entry.id));
+  photosBefore.forEach((photo, id) => {
+    if (!survivors.has(id)) discardPhoto(photo, 'removed by import');
+  });
+
   return res.json({
     ok: true,
     mode,
@@ -1596,7 +1616,17 @@ app.post('/api/import', requireActor, requireSuperAdmin, (req, res) => {
 });
 
 app.post('/api/reset', requireActor, requireSuperAdmin, (req, res) => {
+  const before = getDb();
+  const photos = [...before.staff, ...before.students]
+    .map((entry) => entry.photo)
+    .filter(Boolean);
+
   const db = resetStore();
+
+  // The seed has no photos, so every uploaded asset for this data set is now
+  // orphaned. Removing them keeps Cloudinary from slowly accumulating junk.
+  photos.forEach((photo) => discardPhoto(photo, 'demo reset'));
+
   res.json({
     ok: true,
     revision: db.meta.revision,
@@ -1631,6 +1661,20 @@ function findPhotoTarget(db, kind, id) {
   const collection = kind === 'staff' ? db.staff : db.students;
   const index = collection.findIndex((entry) => entry.id === id);
   return index === -1 ? null : { collection, index };
+}
+
+/**
+ * Deletes a Cloudinary asset that is no longer referenced by any record.
+ *
+ * Always fire-and-forget: a media cleanup failure must never roll back the
+ * data change the user asked for. The log line is the trail for a manual sweep.
+ */
+function discardPhoto(photo, reason) {
+  const publicId = photo?.publicId;
+  if (!publicId) return;
+  destroyAsset(publicId).catch((error) =>
+    console.error(`[cloudinary] orphan not removed (${reason}, ${publicId}):`, error.message)
+  );
 }
 
 app.get('/api/me', requireActor, (req, res) => {
@@ -1706,9 +1750,7 @@ function registerPhotoRoutes(kind, routePath) {
     });
 
     if (previous?.publicId && previous.publicId !== publicId) {
-      destroyAsset(previous.publicId).catch((error) =>
-        console.error('[cloudinary] could not remove the old photo:', error.message)
-      );
+      discardPhoto(previous, 'replaced');
     }
 
     const updated = findPhotoTarget(getDb(), kind, id);
@@ -1736,9 +1778,7 @@ function registerPhotoRoutes(kind, routePath) {
       delete record.photo;
     });
 
-    destroyAsset(previous.publicId).catch((error) =>
-      console.error('[cloudinary] could not remove the photo:', error.message)
-    );
+    discardPhoto(previous, 'removed');
 
     return res.json({ photo: null });
   });
@@ -1801,10 +1841,15 @@ app.use((error, req, res, next) => {
   return res.status(500).json({ error: 'The local server hit an unexpected error.' });
 });
 
-initStoreAsync()
-  .catch((error) => console.error('[data] boot failed:', error.message))
-  .finally(() => {
-    app.listen(PORT, () => {
+// On Workers, async I/O in the global scope is forbidden, so the entry point
+// starts the store on the first request instead. The Node server boots eagerly.
+export const ready =
+  String(process.env.RUNTIME || '') === 'workers'
+    ? Promise.resolve()
+    : initStoreAsync().catch((error) => console.error('[data] boot failed:', error.message));
+
+ready.finally(() => {
+  app.listen(PORT, () => {
       const db = getDb();
       console.log('');
       console.log('  Nawaz School RMS - local prototype server');
@@ -1815,6 +1860,11 @@ initStoreAsync()
       console.log(`  Data:     ${getDatabaseFile()}`);
       console.log(
         `  Seed:     revision ${db.meta.revision} - ${db.students.length} students - ${db.staff.length} staff`
+      );
+      console.log(
+        hasConfiguredOrigins()
+          ? '  CORS:     allowlist from CORS_ORIGINS'
+          : '  CORS:     dev origins only - set CORS_ORIGINS before deploying'
       );
       console.log('');
     });

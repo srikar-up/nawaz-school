@@ -499,4 +499,78 @@ RBAC: Principal / SuperAdmin edit anyone; a teacher edits only their own photo.
 npm --workspace server run test:db          # Firestore architecture, isolated namespace
 node server/test/profile-photo.e2e.mjs      # needs dev servers running
 node server/test/profile-ui.e2e.mjs
+node server/test/live-sync.e2e.mjs
+node server/test/photo-cleanup.e2e.mjs
+node server/test/production.e2e.mjs         # hits the three deployed Workers
 ```
+
+---
+
+## Deployment (Cloudflare Workers)
+
+Three independent Workers, three separate origins:
+
+| App | Worker | URL |
+| --- | --- | --- |
+| Teacher PWA | `nawaz-school-teacher` | https://nawaz-school-teacher.srikarsensai.workers.dev |
+| Admin panel | `nawaz-school-admin` | https://nawaz-school-admin.srikarsensai.workers.dev |
+| API | `nawaz-school-api` | https://nawaz-school-api.srikarsensai.workers.dev |
+
+A custom domain can replace these later with `routes`/`custom_domains` in each
+`wrangler.jsonc`; no application code depends on the `workers.dev` names.
+
+### Build and deploy
+
+```bash
+export VITE_API_URL=https://nawaz-school-api.srikarsensai.workers.dev
+export VITE_TEACHER_URL=https://nawaz-school-teacher.srikarsensai.workers.dev
+export VITE_ADMIN_URL=https://nawaz-school-admin.srikarsensai.workers.dev
+
+npm run build
+npm run deploy:api        # wrangler deploy --config server/wrangler.jsonc
+npm run deploy:teacher
+npm run deploy:admin
+```
+
+`npm run deploy:teacher` / `deploy:admin` must run with the app workspace as the
+current directory (the npm workspace scripts do this for you); Wrangler resolves
+`assets.directory` relative to its config file.
+
+### API secrets
+
+The API Worker holds these as encrypted secrets. Upload them from a local file
+that is never committed:
+
+```bash
+npx wrangler secret bulk server/.dev.vars --config server/wrangler.jsonc
+```
+
+| Secret | Purpose |
+| --- | --- |
+| `FIREBASE_SERVICE_ACCOUNT_JSON` | Admin credentials for the REST layer |
+| `FIREBASE_API_KEY` | Web API key used to resolve ID tokens |
+| `CLOUDINARY_CLOUD_NAME` / `_API_KEY` / `_API_SECRET` | signed uploads and deletes |
+| `CORS_ORIGINS` | comma-separated teacher + admin origins |
+
+Variables (not secrets) live in `server/wrangler.jsonc`: `RUNTIME=workers`,
+`DATA_BACKEND=firestore`, `DISABLE_FILE_CACHE=true`.
+
+### Why the API has a REST Firebase layer
+
+`firebase-admin` cannot run on Workers: its Firestore client speaks gRPC over
+raw TCP. `wrangler.jsonc` therefore aliases `firebase-admin/app|firestore|auth`
+to `server/src/workers/*`, which implement the same surface over Google's REST
+APIs (service-account JWT minted with WebCrypto, ID tokens validated through
+Identity Toolkit). The Node server keeps using the real Admin SDK.
+
+`DISABLE_FILE_CACHE=true` turns off the local `db.json` mirror on Workers; the
+in-memory database is hydrated from Firestore on the first request, and
+`context.waitUntil(flushStore())` keeps each mutation alive until it is written.
+
+### Local Workers runtime
+
+```bash
+npx wrangler dev --config server/wrangler.jsonc   # http://127.0.0.1:8787
+```
+
+Secrets come from `server/.dev.vars` (git-ignored).

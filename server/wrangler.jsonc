@@ -1,0 +1,23 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "nawaz-school-api",
+  "main": "./src/worker.js",
+  "compatibility_date": "2026-08-04",
+  "compatibility_flags": ["nodejs_compat"],
+  "alias": {
+    "iconv-lite": "./src/iconv-lite-stub.js",
+    "firebase-admin/app": "./src/workers/firebase-app-stub.js",
+    "firebase-admin/firestore": "./src/workers/firebase-firestore-stub.js",
+    "firebase-admin/auth": "./src/workers/firebase-auth-stub.js"
+  },
+  "vars": {
+    "PORT": "4000",
+    "RUNTIME": "workers",
+    "DATA_BACKEND": "firestore",
+    "DISABLE_FILE_CACHE": "true",
+    "FIREBASE_PROJECT_ID": "thiangle-349e7"
+  },
+  "observability": {
+    "enabled": true
+  }
+}

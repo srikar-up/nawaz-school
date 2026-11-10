@@ -10,3 +10,6 @@ opencode.json
 serviceAccountKey.json
 *.service-account.json
 *firebase-adminsdk*.json
+
+.dev.vars
+.wrangler/

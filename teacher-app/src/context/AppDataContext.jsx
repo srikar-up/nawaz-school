@@ -152,33 +152,42 @@ export function AppDataProvider({ children }) {
 
     let cancelled = false;
     let changeTimer = null;
-    let source = null;
+    let retryTimer = null;
+    let controller = null;
 
     setLoading(!hasDataRef.current);
     refresh();
 
+    const scheduleRetry = () => {
+      if (cancelled) return;
+      setLive(false);
+      window.clearTimeout(retryTimer);
+      retryTimer = window.setTimeout(connect, 4000);
+    };
+
     const connect = async () => {
+      if (cancelled) return;
+      controller = new AbortController();
+
       try {
-        source = new EventSource(await api.eventUrl(staffId));
-        source.addEventListener('ready', () => {
-          if (!cancelled) {
+        await api.streamEvents({
+          signal: controller.signal,
+          onOpen: () => {
+            if (cancelled) return;
             setLive(true);
             setOffline(false);
-          }
+          },
+          onEvent: ({ event }) => {
+            if (cancelled || event !== 'change') return;
+            window.clearTimeout(changeTimer);
+            changeTimer = window.setTimeout(() => refresh({ silent: true }), 220);
+          },
         });
-        source.addEventListener('change', () => {
-          if (cancelled) return;
-          window.clearTimeout(changeTimer);
-          changeTimer = window.setTimeout(() => refresh({ silent: true }), 220);
-        });
-        source.onopen = () => {
-          if (!cancelled) setLive(true);
-        };
-        source.onerror = () => {
-          if (!cancelled) setLive(false);
-        };
-      } catch {
-        setLive(false);
+        // The server closed the stream (restart or idle timeout): reconnect.
+        scheduleRetry();
+      } catch (error) {
+        if (cancelled || error.name === 'AbortError') return;
+        scheduleRetry();
       }
     };
 
@@ -187,7 +196,8 @@ export function AppDataProvider({ children }) {
     return () => {
       cancelled = true;
       window.clearTimeout(changeTimer);
-      source?.close();
+      window.clearTimeout(retryTimer);
+      controller?.abort();
       setLive(false);
     };
   }, [staffId, refresh]);

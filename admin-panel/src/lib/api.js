@@ -114,13 +114,66 @@ export const api = {
     request(`/api/${kind}/${id}/photo`, { method: 'PATCH', body: photo }),
   deletePhoto: (kind, id) => request(`/api/${kind}/${id}/photo`, { method: 'DELETE' }),
 
-  /** EventSource cannot send headers, so the token rides in the query string. */
-  eventUrl: async (staffId) => {
+  /**
+   * Live sync over a fetch stream instead of EventSource.
+   *
+   * EventSource cannot set headers, which used to force the ID token into the
+   * query string - and therefore into proxy and server access logs. Fetch can
+   * send the normal Authorization header, so the token never appears in a URL.
+   *
+   * Resolves when the server closes the stream; rejects on network/auth errors.
+   */
+  streamEvents: async ({ signal, onOpen, onEvent } = {}) => {
     await auth?.authStateReady?.();
     const token = auth?.currentUser ? await auth.currentUser.getIdToken() : '';
-    const who = staffId ? `staffId=${encodeURIComponent(staffId)}&` : '';
-    return `${API_BASE}/api/events?${who}token=${encodeURIComponent(token)}`;
+
+    const response = await fetch(`${API_BASE}/api/events`, {
+      method: 'GET',
+      headers: { Accept: 'text/event-stream', Authorization: `Bearer ${token}` },
+      signal,
+      cache: 'no-store',
+    });
+
+    if (!response.ok || !response.body) {
+      throw new Error(`Live sync unavailable (${response.status}).`);
+    }
+
+    onOpen?.();
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let boundary = buffer.indexOf('\n\n');
+      while (boundary !== -1) {
+        const block = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        const parsed = parseSseBlock(block);
+        if (parsed) onEvent?.(parsed);
+        boundary = buffer.indexOf('\n\n');
+      }
+    }
   },
 };
+
+/** Reads one SSE block into { event, data }. Comment lines are ignored. */
+function parseSseBlock(block) {
+  let event = 'message';
+  const data = [];
+
+  block.split(/\r?\n/).forEach((line) => {
+    if (!line || line.startsWith(':')) return;
+    if (line.startsWith('event:')) event = line.slice(6).trim();
+    else if (line.startsWith('data:')) data.push(line.slice(5).trim());
+  });
+
+  if (!data.length) return null;
+  return { event, data: data.join('\n') };
+}
 
 export { API_BASE };

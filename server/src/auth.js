@@ -4,22 +4,15 @@ import { getDb } from './store.js';
 const CHECK_REVOKED = String(process.env.AUTH_CHECK_REVOKED || '').toLowerCase() === 'true';
 
 /**
- * Extracts an ID token from the request.
+ * Extracts an ID token from the Authorization header.
  *
- * The header is the norm. The `?token=` query fallback exists only because
- * EventSource cannot set headers for the SSE stream; it is limited to that
- * endpoint by the caller.
+ * Tokens are intentionally never accepted from the query string: URLs end up
+ * in proxy logs, browser history and referrers.
  */
-export function extractBearer(req, { allowQueryToken = false } = {}) {
+export function extractBearer(req) {
   const header = req.get('authorization') || '';
   const match = /^Bearer\s+(.+)$/i.exec(header);
-  if (match) return match[1].trim();
-
-  if (allowQueryToken) {
-    const queryToken = typeof req.query?.token === 'string' ? req.query.token.trim() : '';
-    if (queryToken) return queryToken;
-  }
-  return null;
+  return match ? match[1].trim() : null;
 }
 
 export async function verifyIdToken(token) {
@@ -35,8 +28,7 @@ export async function verifyIdToken(token) {
  * Nothing about identity is read from the request body or headers.
  */
 export async function requireActor(req, res, next) {
-  const allowQueryToken = req.path === '/api/events' || req.originalUrl.startsWith('/api/events');
-  const token = extractBearer(req, { allowQueryToken });
+  const token = extractBearer(req);
 
   if (!token) {
     return res.status(401).json({ error: 'Sign-in required.' });

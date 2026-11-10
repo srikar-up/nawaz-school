@@ -19,12 +19,16 @@
     "build:teacher": "npm --workspace teacher-app run build",
     "build:admin": "npm --workspace admin-panel run build",
     "preview": "npm run build && npm run start",
+    "deploy:api": "npm --workspace server run deploy",
+    "deploy:teacher": "npm --workspace teacher-app run deploy",
+    "deploy:admin": "npm --workspace admin-panel run deploy",
     "test:api": "node server/smoke-test.mjs",
     "test:ui": "node server/ui-test.mjs"
   },
   "devDependencies": {
     "cf": "^0.15.0",
     "concurrently": "^9.1.0",
-    "playwright-core": "^1.65.0"
+    "playwright-core": "^1.65.0",
+    "wrangler": "^4.160.0"
   }
 }

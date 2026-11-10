@@ -10,7 +10,15 @@ import {
   saveDbToFirestore,
 } from './firestore-store.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// import.meta.url is undefined in the Workers bundle; the directory is only
+// used by the Node server (JSON cache and static app paths).
+const __dirname = (() => {
+  try {
+    return path.dirname(fileURLToPath(import.meta.url));
+  } catch {
+    return '/';
+  }
+})();
 const DATA_DIR = process.env.DATA_DIR
   ? path.resolve(process.env.DATA_DIR)
   : path.resolve(__dirname, '../data');
@@ -23,11 +31,23 @@ let db = null;
 let lastSynced = null;
 let syncQueue = Promise.resolve();
 
+/**
+ * Local JSON mirror. Disabled on Workers (`DISABLE_FILE_CACHE=true`) where the
+ * filesystem is read-only - the in-memory database is the working copy and
+ * Firestore is the source of truth.
+ */
+const FILE_CACHE = String(process.env.DISABLE_FILE_CACHE || '').toLowerCase() !== 'true';
+
 function persist() {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  const tempFile = `${DATABASE_FILE}.tmp`;
-  fs.writeFileSync(tempFile, JSON.stringify(db, null, 2), 'utf8');
-  fs.renameSync(tempFile, DATABASE_FILE);
+  if (!FILE_CACHE) return;
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    const tempFile = `${DATABASE_FILE}.tmp`;
+    fs.writeFileSync(tempFile, JSON.stringify(db, null, 2), 'utf8');
+    fs.renameSync(tempFile, DATABASE_FILE);
+  } catch (error) {
+    console.warn('[data] could not write the local cache:', error.message);
+  }
 }
 
 function loadFromDisk() {
