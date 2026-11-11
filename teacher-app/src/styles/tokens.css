@@ -480,7 +480,7 @@ svg {
   align-items: center;
   justify-content: center;
   gap: 5px;
-  min-height: 36px;
+  min-height: 44px;
   padding: 8px 6px;
   border-radius: 9px;
   color: var(--muted);

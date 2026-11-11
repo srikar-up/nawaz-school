@@ -1066,6 +1066,7 @@
 
 .class-pill {
   flex: 0 0 auto;
+  min-height: 40px;
   padding: 8px 13px;
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -1344,7 +1345,7 @@
   align-items: center;
   justify-content: center;
   gap: 4px;
-  min-height: 35px;
+  min-height: 44px;
   padding: 5px 2px;
   border: 1px solid var(--slate-100);
   border-radius: 9px;
