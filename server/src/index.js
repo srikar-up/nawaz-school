@@ -4,7 +4,21 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import cors from 'cors';
-import { getBackendName, getDb, getDatabaseFile, initStoreAsync, mutate, resetStore, storeEvents } from './store.js';
+import {
+  getBackendName,
+  getChangesSince,
+  getDb,
+  getDatabaseFile,
+  getJournalBounds,
+  getSyncStatus,
+  initStoreAsync,
+  mutate,
+  resetStore,
+  storeEvents,
+  trackCollection,
+  trackRecord,
+} from './store.js';
+import { COLLECTION_KEYS, CONFIG_COLLECTIONS, LAYOUT_VERSION, RECORD_COLLECTIONS } from './firestore-store.js';
 import { requireActor } from './auth.js';
 import { corsDelegate, hasConfiguredOrigins } from './cors.js';
 import {
@@ -48,6 +62,7 @@ import {
   timeRangesOverlap,
   validatePeriods,
 } from './timetable.js';
+import { isoDaysAgo, pruneActivityRecords } from './maintenance.js';
 
 const __dirname = (() => {
   try {
@@ -76,6 +91,7 @@ const RMS_CATEGORIES = new Set([
 const IMPORTANCE = new Set(['Normal', 'Important', 'Urgent', 'Emergency']);
 const ATTENDANCE_TYPES = new Set(['Morning', 'Afternoon', 'FullDay']);
 const EXAM_CATEGORIES = new Set(['classTest', 'ca1', 'ca2', 'midTerm', 'endTerm']);
+const ACTIVITY_LIMIT = Math.max(Number(process.env.ACTIVITY_LIMIT) || 150, 1);
 
 const ACCOUNTS = new Map(
   [
@@ -115,7 +131,8 @@ function addActivity(db, actor, action, entity, entityId, detail) {
     detail,
     createdAt: isoNow(),
   });
-  db.activities = db.activities.slice(0, 150);
+  db.activities = db.activities.slice(0, ACTIVITY_LIMIT);
+  trackCollection('activities');
 }
 
 function teacherClassIds(db, staffId) {
@@ -212,12 +229,20 @@ function nextAnnouncementId(db) {
 
 app.get('/api/health', (req, res) => {
   const db = getDb();
+  const sync = getSyncStatus();
   res.json({
     ok: true,
     school: db.meta.schoolName,
     revision: db.meta.revision,
     updatedAt: db.meta.updatedAt,
     mode: getBackendName(),
+    layoutVersion: LAYOUT_VERSION,
+    sync: {
+      lastSyncAt: sync.lastSyncAt,
+      lastSyncError: sync.lastSyncError,
+      retrying: sync.retrying,
+      journal: sync.journal,
+    },
   });
 });
 
@@ -266,17 +291,175 @@ function requireSuperAdmin(req, res, next) {
   return next();
 }
 
+function permissionsFor(db, actor) {
+  return {
+    admin: isAdmin(actor),
+    superAdmin: isSuperAdmin(actor),
+    teacherClassIds: teacherClassIds(db, actor.id),
+  };
+}
+
+function parseInclude(value) {
+  const requested = Array.isArray(value) ? value.join(',') : String(value || '');
+  return [
+    ...new Set(
+      requested
+        .split(',')
+        .map((key) => key.trim())
+        .filter((key) => COLLECTION_KEYS.includes(key))
+    ),
+  ];
+}
+
+/**
+ * The full working set. Kept for offline caches and reports; new screens
+ * should ask for the slices they need.
+ */
 app.get('/api/state', requireActor, (req, res) => {
   const db = getDb();
+  const include = parseInclude(req.query.include);
+  const slice = include.length
+    ? Object.fromEntries(include.map((key) => [key, db[key]]))
+    : db;
   res.json({
-    ...db,
+    ...slice,
+    meta: db.meta,
     now: isoNow(),
     me: req.actor,
-    permissions: {
-      admin: isAdmin(req.actor),
-      superAdmin: isSuperAdmin(req.actor),
-      teacherClassIds: teacherClassIds(db, req.actor.id),
-    },
+    revision: db.meta.revision,
+    permissions: permissionsFor(db, req.actor),
+  });
+});
+
+/**
+ * Bootstrap: everything that is small and changes rarely. Screens combine it
+ * with the dynamic slices they actually need (students, registers, marks),
+ * instead of pulling the whole school on every request.
+ */
+app.get('/api/bootstrap', requireActor, (req, res) => {
+  const db = getDb();
+  const payload = {
+    meta: db.meta,
+    now: isoNow(),
+    me: req.actor,
+    revision: db.meta.revision,
+    permissions: permissionsFor(db, req.actor),
+    dynamicCollections: RECORD_COLLECTIONS,
+    layoutVersion: LAYOUT_VERSION,
+  };
+  CONFIG_COLLECTIONS.forEach((key) => {
+    payload[key] = db[key];
+  });
+  res.json(payload);
+});
+
+/**
+ * Delta sync. A client that knows its last revision gets only the records that
+ * changed. If the journal no longer covers the gap (or the change was an
+ * import/reset), it receives `{ full: true }` and refetches once.
+ */
+app.get('/api/changes', requireActor, (req, res) => {
+  res.json(getChangesSince(req.query.since));
+});
+
+/**
+ * Storage diagnostics for the SuperAdmin. Used by the scaling load test and to
+ * spot a document close to Firestore's 1 MiB limit before a write fails.
+ */
+app.get('/api/diagnostics', requireActor, requireSuperAdmin, (req, res) => {
+  const db = getDb();
+  const bytes = (value) => {
+    const text = JSON.stringify(value);
+    return typeof Buffer !== 'undefined'
+      ? Buffer.byteLength(text, 'utf8')
+      : new TextEncoder().encode(text).length;
+  };
+  const stats = Object.fromEntries(
+    COLLECTION_KEYS.map((key) => {
+      const rows = db[key] || [];
+      const largest = rows.reduce(
+        (max, row) => Math.max(max, bytes(row)),
+        0
+      );
+      return [
+        key,
+        {
+          rows: rows.length,
+          bytes: bytes({ items: rows }),
+          largestRecordBytes: largest,
+          layout: RECORD_COLLECTIONS.includes(key) ? 'per-record' : 'single-document',
+        },
+      ];
+    })
+  );
+  res.json({
+    revision: db.meta.revision,
+    updatedAt: db.meta.updatedAt,
+    backend: getBackendName(),
+    layoutVersion: LAYOUT_VERSION,
+    collections: stats,
+    totalBytes: bytes(db),
+    sync: getSyncStatus(),
+    journal: getJournalBounds(),
+  });
+});
+
+/**
+ * Retention maintenance.
+ *
+ * Defaults to a dry run: the caller sees how many registers would be removed
+ * before committing. `dryRun: false` performs the deletion and records it in
+ * the audit log.
+ */
+app.post('/api/maintenance/prune', requireActor, requireSuperAdmin, (req, res) => {
+  const body = req.body || {};
+  const dryRun = body.dryRun !== false;
+  const retentionDays = Number(body.retentionDays ?? 365);
+  if (!Number.isFinite(retentionDays) || retentionDays < 0) {
+    return res.status(400).json({ error: 'retentionDays must be zero or a positive number.' });
+  }
+  const cutoff = str(body.attendanceBefore) || isoDaysAgo(retentionDays);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(cutoff)) {
+    return res.status(400).json({ error: 'attendanceBefore must use YYYY-MM-DD.' });
+  }
+  const activitiesLimit = Math.max(Number(body.activitiesLimit ?? ACTIVITY_LIMIT) || 1, 1);
+
+  const db = getDb();
+  const attendanceRemoved = db.attendanceSessions.filter(
+    (session) => String(session.date) < cutoff
+  ).length;
+  const activitiesRemoved = Math.max(0, db.activities.length - activitiesLimit);
+
+  if (!dryRun && (attendanceRemoved || activitiesRemoved)) {
+    mutate((current) => {
+      const removed = current.attendanceSessions.filter(
+        (session) => String(session.date) < cutoff
+      );
+      current.attendanceSessions = current.attendanceSessions.filter(
+        (session) => String(session.date) >= cutoff
+      );
+      removed.forEach((session) =>
+        trackRecord('attendanceSessions', session.id, 'delete')
+      );
+      pruneActivityRecords(current, activitiesLimit);
+      addActivity(
+        current,
+        req.actor,
+        'Pruned old school data',
+        'Maintenance',
+        'retention',
+        `${removed.length} register(s) before ${cutoff} · audit log capped at ${activitiesLimit}`
+      );
+    });
+  }
+
+  return res.json({
+    dryRun,
+    cutoff,
+    attendanceRemoved,
+    activitiesRemoved,
+    activitiesLimit,
+    revision: getDb().meta.revision,
   });
 });
 
@@ -304,6 +487,74 @@ app.get('/api/events', requireActor, (req, res) => {
     res.end();
   });
   return undefined;
+});
+
+/* ------------------------------------------------------------------ */
+/* Targeted reads                                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Paginated student lookup. Admin screens can ask for one class or a search
+ * term without downloading the whole roster.
+ */
+app.get('/api/students', requireActor, (req, res) => {
+  const db = getDb();
+  const classIdSection = str(req.query.classIdSection || req.query.class);
+  const search = str(req.query.search).toLowerCase();
+  const limit = Math.min(Math.max(Number(req.query.limit) || 0, 0), 500);
+  const offset = Math.max(Number(req.query.offset) || 0, 0);
+
+  let rows = db.students;
+  if (classIdSection) rows = rows.filter((student) => student.classIdSection === classIdSection);
+  if (search) {
+    rows = rows.filter((student) =>
+      [student.name, student.rollNumber, student.code, student.guardianName, student.parentPhone]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(search))
+    );
+  }
+  rows = [...rows].sort(
+    (a, b) =>
+      String(a.classIdSection).localeCompare(String(b.classIdSection)) ||
+      Number(a.rollNumber) - Number(b.rollNumber)
+  );
+  const total = rows.length;
+  if (limit) rows = rows.slice(offset, offset + limit);
+  res.json({ students: rows, total, offset, limit: limit || total });
+});
+
+/** Registers for one date/session, or a bounded range for reports. */
+app.get('/api/attendance', requireActor, (req, res) => {
+  const db = getDb();
+  const date = str(req.query.date);
+  const from = str(req.query.from);
+  const to = str(req.query.to);
+  const classIdSection = str(req.query.classIdSection || req.query.class);
+  const sessionType = str(req.query.sessionType);
+
+  let rows = db.attendanceSessions;
+  if (classIdSection) rows = rows.filter((session) => session.classIdSection === classIdSection);
+  if (sessionType) rows = rows.filter((session) => session.sessionType === sessionType);
+  if (date) rows = rows.filter((session) => session.date === date);
+  if (from) rows = rows.filter((session) => session.date >= from);
+  if (to) rows = rows.filter((session) => session.date <= to);
+  res.json({
+    sessions: [...rows].sort(
+      (a, b) => b.date.localeCompare(a.date) || a.classIdSection.localeCompare(b.classIdSection)
+    ),
+  });
+});
+
+/** Marks for one assessment: roster plus entered records. */
+app.get('/api/exams/:id/results', requireActor, (req, res) => {
+  const db = getDb();
+  const exam = db.exams.find((entry) => entry.id === req.params.id);
+  if (!exam) return res.status(404).json({ error: 'Exam not found.' });
+  const roster = db.students
+    .filter((student) => student.classIdSection === exam.classIdSection)
+    .sort((a, b) => Number(a.rollNumber) - Number(b.rollNumber));
+  const records = db.testRecords.filter((record) => record.examId === exam.id);
+  return res.json({ exam, roster, records });
 });
 
 /* ------------------------------------------------------------------ */
@@ -353,6 +604,7 @@ app.post('/api/students', requireActor, requireAdmin, (req, res) => {
 
   mutate((current) => {
     current.students.push(student);
+    trackRecord('students', student.id);
     addActivity(current, req.actor, 'Added student', 'Student', student.code, student.name);
   });
 
@@ -401,6 +653,7 @@ app.patch('/api/students/:id', requireActor, requireAdmin, (req, res) => {
     target.name = str(target.name) || student.name;
     target.rollNumber = nextRoll;
     target.classIdSection = nextClass;
+    trackRecord('students', target.id);
     addActivity(current, req.actor, 'Updated student record', 'Student', target.code, target.name);
   });
 
@@ -413,13 +666,22 @@ app.delete('/api/students/:id', requireActor, requireAdmin, (req, res) => {
   if (!student) return res.status(404).json({ error: 'Student not found.' });
 
   mutate((current) => {
+    const removedRecords = current.testRecords
+      .filter((record) => record.studentId === student.id)
+      .map((record) => record.id);
     current.students = current.students.filter((entry) => entry.id !== student.id);
     current.testRecords = current.testRecords.filter(
       (record) => record.studentId !== student.id
     );
     current.attendanceSessions.forEach((session) => {
+      const before = session.entries.length;
       session.entries = session.entries.filter((entry) => entry.studentId !== student.id);
+      if (session.entries.length !== before) {
+        trackRecord('attendanceSessions', session.id);
+      }
     });
+    trackRecord('students', student.id, 'delete');
+    removedRecords.forEach((id) => trackRecord('testRecords', id, 'delete'));
     addActivity(
       current,
       req.actor,
@@ -488,6 +750,7 @@ app.post('/api/students/bulk', requireActor, requireAdmin, (req, res) => {
         existing.classIdSection = classIdSection;
         existing.parentPhone = str(raw.parent_phone || raw.parentPhone) || existing.parentPhone;
         existing.guardianName = str(raw.guardian_name || raw.guardianName) || existing.guardianName;
+        trackRecord('students', existing.id);
         updated += 1;
       } else {
         const finalCode = code || nextStudentCode(current, classIdSection, roll);
@@ -510,6 +773,7 @@ app.post('/api/students/bulk', requireActor, requireAdmin, (req, res) => {
           status: 'Active',
           createdAt: isoNow(),
         });
+        trackRecord('students', finalCode);
         inserted += 1;
       }
     });
@@ -562,6 +826,7 @@ app.post('/api/staff', requireActor, requireSuperAdmin, (req, res) => {
 
   mutate((current) => {
     current.staff.push(member);
+    trackRecord('staff', member.id);
     addActivity(current, req.actor, 'Added staff member', 'Staff', member.code, member.name);
   });
 
@@ -618,6 +883,7 @@ app.patch('/api/staff/:id', requireActor, requireSuperAdmin, (req, res) => {
       if (body[field] !== undefined) target[field] = body[field];
     });
     if (target.email) target.email = str(target.email).toLowerCase();
+    trackRecord('staff', target.id);
     addActivity(
       current,
       req.actor,
@@ -652,6 +918,7 @@ app.delete('/api/staff/:id', requireActor, requireSuperAdmin, (req, res) => {
 
   mutate((current) => {
     current.staff = current.staff.filter((entry) => entry.id !== member.id);
+    trackRecord('staff', member.id, 'delete');
     addActivity(current, req.actor, 'Removed staff member', 'Staff', member.code, member.name);
   });
 
@@ -761,6 +1028,7 @@ app.post('/api/attendance', requireActor, (req, res) => {
       };
       current.attendanceSessions.push(saved);
     }
+    trackRecord('attendanceSessions', sessionId);
     addActivity(
       current,
       req.actor,
@@ -875,6 +1143,7 @@ app.put('/api/timetable', requireActor, requireAdmin, (req, res) => {
     const index = current.timetable.findIndex((row) => row.id === entry.id);
     if (index >= 0) current.timetable[index] = entry;
     else current.timetable.push(entry);
+    trackCollection('timetable');
     addActivity(
       current,
       req.actor,
@@ -898,6 +1167,7 @@ app.delete('/api/timetable/:id', requireActor, requireAdmin, (req, res) => {
 
   mutate((current) => {
     current.timetable = current.timetable.filter((row) => row.id !== entry.id);
+    trackCollection('timetable');
     addActivity(
       current,
       req.actor,
@@ -978,6 +1248,7 @@ app.patch('/api/timetable/settings', requireActor, requireAdmin, (req, res) => {
       entry.dayName = dayName(entry.dayOfWeek);
     });
     store.timetable = kept;
+    trackCollection('timetable');
 
     store.meta.timetableDays = days;
     store.meta.timetablePeriods = periods;
@@ -1054,6 +1325,7 @@ app.post('/api/exams', requireActor, requireAdmin, (req, res) => {
 
   mutate((current) => {
     current.exams.push(exam);
+    trackRecord('exams', exam.id);
     addActivity(
       current,
       req.actor,
@@ -1078,6 +1350,7 @@ app.patch('/api/exams/:id', requireActor, requireAdmin, (req, res) => {
     allowed.forEach((field) => {
       if (body[field] !== undefined) target[field] = body[field];
     });
+    trackRecord('exams', target.id);
     addActivity(current, req.actor, 'Updated assessment', 'Exam', target.id, target.title);
   });
   return res.json({ exam: getDb().exams.find((entry) => entry.id === exam.id) });
@@ -1088,10 +1361,15 @@ app.delete('/api/exams/:id', requireActor, requireAdmin, (req, res) => {
   const exam = db.exams.find((entry) => entry.id === req.params.id);
   if (!exam) return res.status(404).json({ error: 'Exam not found.' });
   mutate((current) => {
+    const removedRecords = current.testRecords
+      .filter((record) => record.examId === exam.id)
+      .map((record) => record.id);
     current.exams = current.exams.filter((entry) => entry.id !== exam.id);
     current.testRecords = current.testRecords.filter(
       (record) => record.examId !== exam.id
     );
+    trackRecord('exams', exam.id, 'delete');
+    removedRecords.forEach((id) => trackRecord('testRecords', id, 'delete'));
     addActivity(current, req.actor, 'Deleted assessment', 'Exam', exam.id, exam.title);
   });
   return res.json({ ok: true });
@@ -1161,6 +1439,7 @@ app.post('/api/exams/:id/marks', requireActor, (req, res) => {
       if (existing) {
         Object.assign(existing, payload);
         savedRecords.push(existing);
+        trackRecord('testRecords', existing.id);
       } else {
         const record = {
           id: `TR-${exam.id}-${studentId}`,
@@ -1168,10 +1447,12 @@ app.post('/api/exams/:id/marks', requireActor, (req, res) => {
         };
         current.testRecords.push(record);
         savedRecords.push(record);
+        trackRecord('testRecords', record.id);
       }
     });
     target.marksStatus = 'Submitted';
     target.submittedAt = isoNow();
+    trackRecord('exams', target.id);
     addActivity(
       current,
       req.actor,
@@ -1288,8 +1569,10 @@ app.post('/api/curricula', requireActor, requireAdmin, (req, res) => {
       curriculum.id = `${curriculum.id}-${current.curricula.length + 1}`;
     }
     current.curricula.push(curriculum);
+    trackRecord('curricula', curriculum.id);
     sections.forEach((section) => {
       const result = applyCurriculumToSection(current, curriculum, section);
+      trackRecord('subjects', result.offering.id);
       if (result.created) created += 1;
       else updated += 1;
     });
@@ -1358,6 +1641,7 @@ app.patch('/api/curricula/:id', requireActor, requireAdmin, (req, res) => {
     target.isLab = isLab;
     target.chapters = chapters;
     target.updatedAt = isoNow();
+    trackRecord('curricula', target.id);
 
     const linked = current.subjects.filter(
       (subject) =>
@@ -1368,17 +1652,20 @@ app.patch('/api/curricula/:id', requireActor, requireAdmin, (req, res) => {
 
     linked.forEach((subject) => {
       applyCurriculumToOffering(subject, target);
+      trackRecord('subjects', subject.id);
 
       current.timetable.forEach((period) => {
         if (period.subjectId !== subject.id) return;
         period.subject = subject.subjectName;
         period.subjectCode = subject.subjectCode;
         period.isLab = subject.isLab;
+        trackCollection('timetable');
       });
 
       current.exams.forEach((exam) => {
         if (exam.subjectId !== subject.id) return;
         exam.subject = subject.subjectName;
+        trackRecord('exams', exam.id);
       });
     });
 
@@ -1390,6 +1677,7 @@ app.patch('/api/curricula/:id', requireActor, requireAdmin, (req, res) => {
           normalizeName(assignment.subject) === normalizeName(previousName)
         ) {
           assignment.subject = subjectName;
+          trackRecord('assignments', assignment.id);
         }
       });
     }
@@ -1432,6 +1720,7 @@ app.post('/api/curricula/:id/apply', requireActor, requireAdmin, (req, res) => {
   mutate((current) => {
     requested.forEach((section) => {
       const result = applyCurriculumToSection(current, curriculum, section);
+      trackRecord('subjects', result.offering.id);
       if (result.created) created += 1;
       else updated += 1;
     });
@@ -1455,6 +1744,7 @@ app.delete('/api/curricula/:id', requireActor, requireAdmin, (req, res) => {
 
   mutate((current) => {
     current.curricula = current.curricula.filter((entry) => entry.id !== curriculum.id);
+    trackRecord('curricula', curriculum.id, 'delete');
     addActivity(
       current,
       req.actor,
@@ -1481,10 +1771,12 @@ app.patch('/api/subjects/:id', requireActor, requireAdmin, (req, res) => {
     target.assignedStaffId = teacher.id;
     target.assignedTeacherName = teacher.name;
     target.updatedAt = isoNow();
+    trackRecord('subjects', target.id);
     current.timetable.forEach((period) => {
       if (period.subjectId === subject.id) {
         period.teacherStaffId = teacher.id;
         period.teacherName = teacher.name;
+        trackCollection('timetable');
       }
     });
     addActivity(
@@ -1524,6 +1816,7 @@ app.post('/api/subjects/:id/chapters', requireActor, (req, res) => {
     const target = current.subjects.find((entry) => entry.id === subject.id);
     target.chapters[chapterIndex].status = status;
     target.updatedAt = isoNow();
+    trackRecord('subjects', target.id);
     addActivity(
       current,
       req.actor,
@@ -1583,6 +1876,7 @@ app.post('/api/assignments', requireActor, (req, res) => {
   };
   mutate((current) => {
     current.assignments.push(assignment);
+    trackRecord('assignments', assignment.id);
     addActivity(
       current,
       req.actor,
@@ -1628,6 +1922,7 @@ app.patch('/api/assignments/:id', requireActor, (req, res) => {
     allowed.forEach((field) => {
       if (body[field] !== undefined) target[field] = str(body[field]);
     });
+    trackRecord('assignments', target.id);
     addActivity(
       current,
       req.actor,
@@ -1649,6 +1944,7 @@ app.delete('/api/assignments/:id', requireActor, (req, res) => {
   }
   mutate((current) => {
     current.assignments = current.assignments.filter((entry) => entry.id !== assignment.id);
+    trackRecord('assignments', assignment.id, 'delete');
     addActivity(current, req.actor, 'Deleted assignment', 'Assignment', assignment.id, assignment.title);
   });
   return res.json({ ok: true });
@@ -1682,6 +1978,7 @@ app.post('/api/announcements', requireActor, requireAdmin, (req, res) => {
   };
   mutate((current) => {
     current.announcements.unshift(announcement);
+    trackRecord('announcements', announcement.id);
     addActivity(
       current,
       req.actor,
@@ -1708,6 +2005,7 @@ app.patch('/api/announcements/:id', requireActor, requireAdmin, (req, res) => {
     if (target.importance === 'Urgent' || target.importance === 'Emergency') {
       target.isPinned = true;
     }
+    trackRecord('announcements', target.id);
     addActivity(
       current,
       req.actor,
@@ -1726,6 +2024,7 @@ app.delete('/api/announcements/:id', requireActor, requireAdmin, (req, res) => {
   if (!announcement) return res.status(404).json({ error: 'Announcement not found.' });
   mutate((current) => {
     current.announcements = current.announcements.filter((entry) => entry.id !== announcement.id);
+    trackRecord('announcements', announcement.id, 'delete');
     addActivity(
       current,
       req.actor,
@@ -1772,6 +2071,7 @@ app.post('/api/rms', requireActor, (req, res) => {
   };
   mutate((current) => {
     current.rmsTickets.unshift(ticket);
+    trackRecord('rmsTickets', ticket.id);
     addActivity(
       current,
       req.actor,
@@ -1807,6 +2107,7 @@ app.patch('/api/rms/:id', requireActor, requireAdmin, (req, res) => {
     }
     if (body.principalNote !== undefined) target.principalNote = str(body.principalNote);
     if (body.priority !== undefined) target.priority = str(body.priority);
+    trackRecord('rmsTickets', target.id);
     addActivity(
       current,
       req.actor,
@@ -1978,7 +2279,14 @@ app.post('/api/import', requireActor, requireSuperAdmin, (req, res) => {
       `import-${Date.now()}`,
       `${mode} · ${countText}${ignored.length ? ` · ignored:${ignored.join(',')}` : ''}`
     );
-  });
+    db.meta.lastImport = {
+      at: isoNow(),
+      by: req.actor.id,
+      byName: req.actor.name,
+      mode,
+      datasets: [...keys],
+    };
+  }, { full: true });
 
   const db = getDb();
   const survivors = new Set([...db.staff, ...db.students].map((entry) => entry.id));
@@ -2129,6 +2437,7 @@ function registerPhotoRoutes(kind, routePath) {
         updatedAt: isoNow(),
         updatedBy: req.actor.id,
       };
+      trackRecord(kind, id);
     });
 
     if (previous?.publicId && previous.publicId !== publicId) {
@@ -2158,6 +2467,7 @@ function registerPhotoRoutes(kind, routePath) {
         ? current.staff.find((entry) => entry.id === id)
         : current.students.find((entry) => entry.id === id);
       delete record.photo;
+      trackRecord(kind, id);
     });
 
     discardPhoto(previous, 'removed');

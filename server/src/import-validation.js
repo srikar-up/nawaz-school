@@ -16,7 +16,7 @@ export const IMPORT_COLLECTIONS = [
     key: 'subjects',
     kind: 'array',
     primaryKey: 'id',
-    required: ['id', 'subjectName', 'classIdSection', 'assignedStaffId'],
+    required: ['id', 'subjectName', 'classIdSection'],
     foreignKeys: [
       { field: 'classIdSection', collection: 'classes' },
       { field: 'assignedStaffId', collection: 'staff' },
@@ -43,7 +43,7 @@ export const IMPORT_COLLECTIONS = [
     key: 'exams',
     kind: 'array',
     primaryKey: 'id',
-    required: ['id', 'title', 'classIdSection', 'subjectId', 'assignedStaffId', 'date', 'maxMarks'],
+    required: ['id', 'title', 'classIdSection', 'subjectId', 'date', 'maxMarks'],
     foreignKeys: [
       { field: 'classIdSection', collection: 'classes' },
       { field: 'subjectId', collection: 'subjects' },

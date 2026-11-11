@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import {
+  ArrowDownUp,
   Award,
   BarChart3,
   CalendarDays,
@@ -79,6 +80,10 @@ export default function Exams() {
   const [busy, setBusy] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [resultExamId, setResultExamId] = useState('');
+  const [resultSearch, setResultSearch] = useState('');
+  const [resultStatus, setResultStatus] = useState('all');
+  const [resultSort, setResultSort] = useState('roll');
+  const [resultDir, setResultDir] = useState('asc');
 
   const exams = useMemo(
     () =>
@@ -118,6 +123,54 @@ export default function Exams() {
       percentage: record?.percentage ?? null,
     };
   });
+
+  const visibleResultRows = (() => {
+    const text = resultSearch.trim().toLowerCase();
+    const rows = resultRows.filter(({ student, percentage }) => {
+      const overall = studentAverage(data, student.id);
+      const status =
+        percentage === null ? 'not entered' : percentage < 35 ? 'at risk' : 'passed';
+      const haystack = [
+        student.name,
+        student.rollNumber,
+        student.code,
+        gradeLetter(percentage),
+        status,
+        percentage === null ? '' : Math.round(percentage),
+        overall === null ? '' : Math.round(overall),
+      ]
+        .join(' ')
+        .toLowerCase();
+      const matchesSearch = !text || haystack.includes(text);
+      const matchesStatus =
+        resultStatus === 'all' ||
+        (resultStatus === 'entered' && percentage !== null) ||
+        (resultStatus === 'missing' && percentage === null) ||
+        (resultStatus === 'passed' && percentage !== null && percentage >= 35) ||
+        (resultStatus === 'risk' && percentage !== null && percentage < 35);
+      return matchesSearch && matchesStatus;
+    });
+
+    const direction = resultDir === 'asc' ? 1 : -1;
+    rows.sort((a, b) => {
+      if (resultSort === 'student') return a.student.name.localeCompare(b.student.name) * direction;
+      if (resultSort === 'score') {
+        return ((a.record?.marksObtained ?? -1) - (b.record?.marksObtained ?? -1)) * direction;
+      }
+      if (resultSort === 'percentage') {
+        return ((a.percentage ?? -1) - (b.percentage ?? -1)) * direction;
+      }
+      if (resultSort === 'overall') {
+        return (
+          ((studentAverage(data, a.student.id) ?? -1) -
+            (studentAverage(data, b.student.id) ?? -1)) *
+          direction
+        );
+      }
+      return compareRoll(a.student.rollNumber, b.student.rollNumber) * direction;
+    });
+    return rows;
+  })();
   const resultAverage = resultRecords.length
     ? Math.round(
         (resultRecords.reduce((sum, record) => sum + record.percentage, 0) /
@@ -495,10 +548,62 @@ export default function Exams() {
                   <div className="admin-card-head">
                     <div>
                       <h2>Result matrix</h2>
-                      <p>One row per student, ordered by roll number.</p>
+                      <p>Search, filter and sort every column of the result sheet.</p>
                     </div>
                     <Badge tone="success" icon={CheckCircle2}>
                       Marks submitted
+                    </Badge>
+                  </div>
+                  <div className="result-filter-bar">
+                    <div className="admin-search result-search">
+                      <Search size={16} />
+                      <input
+                        type="search"
+                        value={resultSearch}
+                        onChange={(event) => setResultSearch(event.target.value)}
+                        placeholder="Search student, roll, grade, status"
+                        aria-label="Search the result matrix"
+                      />
+                    </div>
+                    <label className="result-filter">
+                      <span>Show</span>
+                      <select
+                        value={resultStatus}
+                        onChange={(event) => setResultStatus(event.target.value)}
+                        aria-label="Filter results by status"
+                      >
+                        <option value="all">All students</option>
+                        <option value="entered">Marks entered</option>
+                        <option value="missing">Not entered</option>
+                        <option value="passed">Passed</option>
+                        <option value="risk">At risk</option>
+                      </select>
+                    </label>
+                    <label className="result-filter">
+                      <span>Sort by</span>
+                      <select
+                        value={resultSort}
+                        onChange={(event) => setResultSort(event.target.value)}
+                        aria-label="Sort the result matrix"
+                      >
+                        <option value="roll">Roll number</option>
+                        <option value="student">Student name</option>
+                        <option value="score">Score</option>
+                        <option value="percentage">Percentage</option>
+                        <option value="overall">Overall average</option>
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      className="admin-btn admin-btn-secondary admin-btn-sm"
+                      onClick={() => setResultDir((current) => (current === 'asc' ? 'desc' : 'asc'))}
+                      aria-label={`Sort ${resultDir === 'asc' ? 'descending' : 'ascending'}`}
+                    >
+                      <ArrowDownUp size={14} />
+                      {resultDir === 'asc' ? 'Ascending' : 'Descending'}
+                    </button>
+                    <Badge tone="neutral">
+                      {visibleResultRows.length}/{resultRows.length}
                     </Badge>
                   </div>
                   <div className="table-scroll">
@@ -515,7 +620,7 @@ export default function Exams() {
                         </tr>
                       </thead>
                       <tbody>
-                        {resultRows.map(({ student, record, percentage }) => {
+                        {visibleResultRows.map(({ student, record, percentage }) => {
                           const overall = studentAverage(data, student.id);
                           return (
                             <tr key={student.id}>
@@ -557,6 +662,15 @@ export default function Exams() {
                             </tr>
                           );
                         })}
+                        {!visibleResultRows.length ? (
+                          <tr>
+                            <td colSpan={7}>
+                              <span className="table-empty-note">
+                                No students match this search or filter.
+                              </span>
+                            </td>
+                          </tr>
+                        ) : null}
                       </tbody>
                     </table>
                   </div>

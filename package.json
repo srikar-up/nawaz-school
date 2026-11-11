@@ -38,6 +38,16 @@
     "test:data-exchange": "node server/test/data-exchange.e2e.mjs",
     "test:assignments:api": "node server/test/assignment-access.e2e.mjs",
     "test:assignments:ui": "node server/test/assignment-ui.e2e.mjs",
+    "test:csv-import": "node server/test/csv-import.e2e.mjs",
+    "test:marks": "node server/test/marks-filters.e2e.mjs",
+    "test:changes": "node --test server/test/change-tracking.test.mjs",
+    "test:scale": "node --test server/test/scale.test.mjs",
+    "test:maintenance": "node --test server/test/maintenance.test.mjs",
+    "test:maintenance:api": "node server/test/maintenance.e2e.mjs",
+    "test:delta": "node server/test/delta-sync.e2e.mjs",
+    "test:state-patch": "node --test server/test/state-patch.test.mjs",
+    "test:import-validation": "node --test server/test/import-validation.test.mjs",
+    "test:load": "node server/scripts/load-test.mjs",
     "test:production": "node server/test/production.e2e.mjs"
   },
   "devDependencies": {

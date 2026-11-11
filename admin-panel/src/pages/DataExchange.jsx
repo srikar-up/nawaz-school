@@ -134,12 +134,22 @@ export default function DataExchange() {
         mode,
         collections: importedCollections,
       });
-      await refresh({ silent: true });
+      const fresh = await refresh({ silent: true });
       setLastImport(result);
-      notify(
-        `Import synced: ${Object.keys(result.summary || {}).length} dataset${Object.keys(result.summary || {}).length === 1 ? '' : 's'} committed.`,
-        'success'
-      );
+      const saved =
+        fresh?.meta?.revision !== undefined &&
+        Number(fresh.meta.revision) >= Number(result.revision);
+      if (!saved) {
+        notify(
+          'The import was accepted, but the saved copy could not be confirmed. Check the connection and reload before doing more work.',
+          'warning'
+        );
+      } else {
+        notify(
+          `Saved to the school database: ${Object.keys(result.summary || {}).length} dataset${Object.keys(result.summary || {}).length === 1 ? '' : 's'} committed.`,
+          'success'
+        );
+      }
       resetSelection();
     } catch (error) {
       if (error.errors?.length) {
@@ -560,6 +570,14 @@ export default function DataExchange() {
                 </details>
               ) : null}
 
+              <div className="data-unsaved-warning">
+                <AlertTriangle size={15} />
+                <span>
+                  <strong>Preview only.</strong> Nothing has reached the school database yet. Press
+                  the button below to save.
+                </span>
+              </div>
+
               <button
                 type="button"
                 className="admin-btn admin-btn-primary admin-btn-block admin-btn-lg"
@@ -584,7 +602,21 @@ export default function DataExchange() {
             </div>
           )}
 
-          {lastImport ? (
+          {data.meta?.lastImport ? (
+            <div className="data-last-import" data-saved-import>
+              <CheckCircle2 size={17} />
+              <div>
+                <strong>Saved to the school database</strong>
+                <span>
+                  {(data.meta.lastImport.datasets || []).length} dataset
+                  {(data.meta.lastImport.datasets || []).length === 1 ? '' : 's'} ·{' '}
+                  {relativeTime(data.meta.lastImport.at)}
+                  {data.meta.lastImport.byName ? ` · by ${data.meta.lastImport.byName}` : ''} ·
+                  revision {data.meta.revision}
+                </span>
+              </div>
+            </div>
+          ) : lastImport ? (
             <div className="data-last-import">
               <CheckCircle2 size={17} />
               <div>

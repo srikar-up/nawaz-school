@@ -8,11 +8,18 @@ import {
   useState,
 } from 'react';
 import { api } from '../lib/api';
+import { applyServerChange, hasPatch } from '../lib/statePatch';
 import Toast from '../components/Toast';
 
 const AppDataContext = createContext(null);
 const SESSION_KEY = 'nawaz.teacher.session.v1';
 const CACHE_KEY = 'nawaz.teacher.state.v1';
+const DYNAMIC_COLLECTIONS = [
+  'students',
+  'attendanceSessions',
+  'testRecords',
+  'staffAttendance',
+];
 
 function readSession() {
   try {
@@ -54,10 +61,25 @@ export function AppDataProvider({ children }) {
   const staffId = session?.user?.id || null;
   const staffIdRef = useRef(staffId);
   staffIdRef.current = staffId;
+  const dataRef = useRef(data);
 
   useEffect(() => {
     hasDataRef.current = Boolean(data);
+    dataRef.current = data;
   }, [data]);
+
+  /**
+   * Bootstrap + the dynamic slices. Screens get the same working set as the
+   * old `/api/state`, but the API no longer serialises one giant object and a
+   * cold client can cache the small bootstrap separately.
+   */
+  const loadState = useCallback(async (id) => {
+    const [config, dynamic] = await Promise.all([
+      api.getBootstrap(),
+      api.getState(id, { include: DYNAMIC_COLLECTIONS }),
+    ]);
+    return { ...config, ...dynamic, meta: dynamic.meta || config.meta };
+  }, []);
 
   const notify = useCallback((message, type = 'success') => {
     window.clearTimeout(toastTimer.current);
@@ -88,7 +110,7 @@ export function AppDataProvider({ children }) {
       if (!id) return null;
       if (!silent) setRefreshing(true);
       try {
-        const state = await api.getState(id);
+        const state = await loadState(id);
         setData(state);
         hasDataRef.current = true;
         // Keep the signed-in user's own record (including photo) in step with the server.
@@ -120,14 +142,14 @@ export function AppDataProvider({ children }) {
         setLoading(false);
       }
     },
-    [logout]
+    [logout, loadState]
   );
 
   const finishLogin = useCallback(async (result) => {
     localStorage.setItem(SESSION_KEY, JSON.stringify(result));
     setSession(result);
     staffIdRef.current = result.user.id;
-    const state = await api.getState(result.user.id);
+    const state = await loadState(result.user.id);
     setData(state);
     hasDataRef.current = true;
     writeCache(state);
@@ -135,7 +157,7 @@ export function AppDataProvider({ children }) {
     setOffline(false);
     setLoading(false);
     return result;
-  }, []);
+  }, [loadState]);
 
   const login = useCallback(
     async (email, password) => {
@@ -169,10 +191,27 @@ export function AppDataProvider({ children }) {
     let cancelled = false;
     let changeTimer = null;
     let retryTimer = null;
+    let revisionTimer = null;
     let controller = null;
 
     setLoading(!hasDataRef.current);
     refresh();
+
+    const checkRevision = async () => {
+      if (cancelled || !dataRef.current) return;
+      try {
+        const health = await api.health();
+        const local = Number(dataRef.current.meta?.revision || 0);
+        if (Number(health.revision) > local) refresh({ silent: true });
+      } catch {
+        /* The SSE stream reconnects on its own; a failed poll is harmless. */
+      }
+    };
+
+    const onOnline = () => refresh({ silent: true });
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') checkRevision();
+    };
 
     const scheduleRetry = () => {
       if (cancelled) return;
@@ -193,8 +232,28 @@ export function AppDataProvider({ children }) {
             setLive(true);
             setOffline(false);
           },
-          onEvent: ({ event }) => {
+          onEvent: ({ event, data: raw }) => {
             if (cancelled || event !== 'change') return;
+            let change = null;
+            try {
+              change = JSON.parse(raw);
+            } catch {
+              change = null;
+            }
+
+            if (hasPatch(change)) {
+              setData((current) => {
+                const next = applyServerChange(current, change);
+                if (!next) return current;
+                writeCache(next);
+                return next;
+              });
+              setLastSyncedAt(new Date());
+              setOffline(false);
+              return;
+            }
+
+            // Import, reset or an older server: refetch once.
             window.clearTimeout(changeTimer);
             changeTimer = window.setTimeout(() => refresh({ silent: true }), 220);
           },
@@ -208,11 +267,17 @@ export function AppDataProvider({ children }) {
     };
 
     connect();
+    revisionTimer = window.setInterval(checkRevision, 5 * 60 * 1000);
+    window.addEventListener('online', onOnline);
+    document.addEventListener('visibilitychange', onVisible);
 
     return () => {
       cancelled = true;
       window.clearTimeout(changeTimer);
       window.clearTimeout(retryTimer);
+      window.clearInterval(revisionTimer);
+      window.removeEventListener('online', onOnline);
+      document.removeEventListener('visibilitychange', onVisible);
       controller?.abort();
       setLive(false);
     };

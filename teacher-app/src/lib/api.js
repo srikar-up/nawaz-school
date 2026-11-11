@@ -130,7 +130,27 @@ export const api = {
   me: () => request('/api/me'),
   logout: () => signOut(auth),
 
-  getState: (_staffId, signal) => request('/api/state', { signal }),
+  /**
+   * Full working set, or only the slices requested with `include`.
+   * Screens that need one table should prefer the targeted endpoints.
+   */
+  getState: (_staffId, { signal, include } = {}) => {
+    const query = include?.length
+      ? `?include=${encodeURIComponent(include.join(','))}`
+      : '';
+    return request(`/api/state${query}`, { signal });
+  },
+  getBootstrap: () => request('/api/bootstrap'),
+  getChanges: (since) => request(`/api/changes?since=${encodeURIComponent(since)}`),
+  health: async () => {
+    const response = await fetch(`${API_BASE}/api/health`, { cache: 'no-store' });
+    return response.json();
+  },
+  getStudents: (params = {}) =>
+    request(`/api/students?${new URLSearchParams(params).toString()}`),
+  getAttendance: (params = {}) =>
+    request(`/api/attendance?${new URLSearchParams(params).toString()}`),
+  getExamResults: (examId) => request(`/api/exams/${examId}/results`),
   saveAttendance: (_staffId, payload) =>
     request('/api/attendance', { method: 'POST', body: payload }),
   submitMarks: (_staffId, examId, records) =>

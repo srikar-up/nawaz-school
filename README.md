@@ -187,15 +187,106 @@ rmsTickets
 activities
 ```
 
-The app clients read the whole dataset from `GET /api/state` and listen to `/api/events`. When another client writes, the SSE event triggers a debounced refetch; the current state is also stored in `localStorage` for offline preview.
+The app clients read the dataset through `GET /api/bootstrap` plus the dynamic
+slices they need, listen to `/api/events`, and apply the small patches those
+events carry. The current state is also stored in `localStorage` for offline
+preview.
+
+### Scaling: per-record storage and delta sync
+
+The original prototype stored one Firestore document per collection
+(`school/attendanceSessions` contained every register). That hits Firestore's
+1 MiB document limit at around 150–250 students and lets two Worker isolates
+overwrite each other's unrelated records.
+
+The server now uses layout v2:
+
+- `school/meta` — schema/revision/layout version.
+- `school/<collection>` — one document for small, rarely changing data
+  (`staff`, `classes`, `subjects`, `curricula`, `timetable`, `exams`,
+  `assignments`, `classIncharges`, `announcements`, `rmsTickets`, `activities`).
+- `school/records/students/<id>` — one document per student.
+- `school/records/attendanceSessions/<id>` — one document per class/date/session.
+- `school/records/testRecords/<id>` — one document per student/exam mark.
+- `school/records/staffAttendance/<id>` — one document per staff/day.
+
+A register submission writes the register document plus meta and the capped
+activity log — about 3 Firestore writes, regardless of how many students are
+enrolled. One student edit writes one student document. The legacy layout is
+read once and migrated on boot; the old collection documents are deleted after
+a successful migration.
+
+`saveDbToFirestore` also enforces a **900 KiB safety limit** per document before
+writing, so a collection that would cross Firestore's 1 MiB cap fails loudly
+instead of silently losing the write. The SuperAdmin diagnostic endpoint shows
+the current sizes.
+
+### Delta sync
+
+Every mutation records which records changed. Clients receive a small patch over
+SSE (`meta`, whole small collections, `upserts`, `deletes`) and merge it into
+the local state. Imports, resets and large bulk roster changes send
+`{ full: true }`, and the client refetches once. A 5-minute `/api/health`
+revision poll plus focus/online refresh covers cross-isolate drift.
+
+`GET /api/changes?since=<revision>` exposes the same patches to clients that
+prefer polling over SSE. The in-memory journal is bounded by
+`CHANGE_JOURNAL_LIMIT` (default 300 revisions); an older revision receives
+`{ full: true }`.
+
+### New read endpoints
+
+```text
+GET /api/bootstrap                         small collections + permissions
+GET /api/state?include=students,...        selected slices only
+GET /api/changes?since=123                 delta patch or full fallback
+GET /api/students?classIdSection=&limit=   paginated / searchable roster
+GET /api/attendance?date=&classIdSection=  one day or a bounded range
+GET /api/exams/:id/results                 roster + marks for one assessment
+GET /api/diagnostics                       sizes, layout, sync health (SuperAdmin)
+POST /api/maintenance/prune                dry-run retention cleanup (SuperAdmin)
+```
+
+### Retention
+
+Attendance is the fastest-growing collection. Set
+`ATTENDANCE_RETENTION_DAYS` to prune registers older than that window on boot
+(0 keeps everything). Alternatively run the explicit dry-run/commit script:
+
+```bash
+node --env-file-if-exists=server/.env server/scripts/prune.mjs --days 365
+node --env-file-if-exists=server/.env server/scripts/prune.mjs --before 2026-01-01 --yes
+```
+
+The audit log is capped by `ACTIVITY_LIMIT` (default 150). It is never pushed
+over SSE wholesale; screens reload it on open/focus.
+
+### Scale model
+
+```bash
+npm run test:scale            # model 1,000 students / 50 staff / 4 exams
+node server/scripts/load-test.mjs --students 1200 --days 90
+```
+
+The model asserts every document stays under the safety limit, reports
+cold-start reads (currently about 11k documents for a 60-day term) and write
+amplification. `--write --yes` can write the generated fixture to an isolated
+`school_loadtest_*` Firestore namespace for a real latency/cost measurement.
 
 ### API endpoints
 
 ```text
 GET    /api/health
 POST   /api/auth/login
-GET    /api/state
-GET    /api/events?staffId=...
+GET    /api/bootstrap
+GET    /api/state[?include=...]
+GET    /api/changes?since=...
+GET    /api/events
+GET    /api/students[?classIdSection=&search=&limit=&offset=]
+GET    /api/attendance[?date=&from=&to=&classIdSection=&sessionType=]
+GET    /api/exams/:id/results
+GET    /api/diagnostics                 (SuperAdmin)
+POST   /api/maintenance/prune           (SuperAdmin, dry run by default)
 
 POST   /api/students
 PATCH  /api/students/:id
@@ -241,7 +332,8 @@ POST   /api/import
 POST   /api/reset
 ```
 
-Every non-auth request uses the temporary `x-staff-id` session header. The server checks active staff, role and class-incharge status for sensitive writes.
+Every non-auth request uses a Firebase ID token as a Bearer header. The server
+checks active staff, role and class-incharge status for sensitive writes.
 
 ---
 
@@ -624,6 +716,14 @@ npm run test:curriculum:ui                  # admin curriculum page, isolated AP
 npm run test:data-exchange                  # CSV bundle includes the curricula dataset
 npm run test:assignments:api                # teacher/admin assignment permissions, isolated
 npm run test:assignments:ui                 # teacher form only offers own classes/subjects
+npm run test:csv-import                     # browser CSV parse -> commit -> reload, isolated
+npm run test:marks                          # teacher/admin marks search, filters and sorting
+npm run test:changes                        # mutation journal + delta patches
+npm run test:delta                          # bootstrap/sliced state/SSE patches, isolated API
+npm run test:scale                          # 1,000 students / 50 teaching staff size model
+npm run test:maintenance                    # retention and audit-log pruning helpers
+npm run test:maintenance:api                # retention dry-run/commit endpoint, isolated
+npm run test:state-patch                    # client-side patch merge in both PWAs
 node server/test/profile-photo.e2e.mjs      # needs dev servers running
 node server/test/profile-ui.e2e.mjs
 node server/test/live-sync.e2e.mjs

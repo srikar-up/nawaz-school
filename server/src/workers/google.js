@@ -210,9 +210,48 @@ async function firestoreFetch(path, options = {}) {
 /* Admin-SDK-compatible surface                                        */
 /* ------------------------------------------------------------------ */
 
+function collectionRef(path) {
+  return {
+    doc(id) {
+      return documentRef(`${path}/${id}`);
+    },
+    /**
+     * Lists every document in a collection, following page tokens.
+     * The Admin SDK exposes the same `{ docs: [{ id, data() }] }` shape,
+     * so the persistence layer can use one code path on Node and Workers.
+     */
+    async get() {
+      const docs = [];
+      let pageToken = '';
+      do {
+        const params = new URLSearchParams({ pageSize: '300' });
+        if (pageToken) params.set('pageToken', pageToken);
+        const response = await firestoreFetch(`${documentName(path)}?${params.toString()}`);
+        if (response.status === 404) break;
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(
+            `Firestore list failed (${response.status}): ${body?.error?.message || ''}`
+          );
+        }
+        for (const doc of body.documents || []) {
+          const id = doc.name.split('/').pop();
+          const data = decodeFields(doc.fields || {});
+          docs.push({ id, data: () => data });
+        }
+        pageToken = body.nextPageToken || '';
+      } while (pageToken);
+      return { docs, size: docs.length, empty: docs.length === 0 };
+    },
+  };
+}
+
 function documentRef(path) {
   return {
     name: documentName(path),
+    collection(sub) {
+      return collectionRef(`${path}/${sub}`);
+    },
     async get() {
       const response = await firestoreFetch(documentName(path));
       if (response.status === 404) {
@@ -235,11 +274,7 @@ export function createRestFirestore() {
   return {
     settings() {},
     collection(root) {
-      return {
-        doc(id) {
-          return documentRef(`${root}/${id}`);
-        },
-      };
+      return collectionRef(root);
     },
     batch() {
       const writes = [];

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
+  ArrowDownUp,
   ArrowLeft,
   BookOpen,
   CheckCircle2,
@@ -9,6 +10,7 @@ import {
   Eye,
   LockKeyhole,
   RotateCcw,
+  Search,
   Send,
   Sparkles,
   TriangleAlert,
@@ -58,6 +60,53 @@ export default function MarksEntry() {
   const [scores, setScores] = useState({});
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState('');
+  const [rowFilter, setRowFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('roll');
+  const [sortDir, setSortDir] = useState('asc');
+
+  const visibleRoster = useMemo(() => {
+    if (!exam) return [];
+    const text = search.trim().toLowerCase();
+    const rows = roster.map((student) => {
+      const raw = scores[student.id];
+      const numeric = Number(raw);
+      const percent =
+        raw !== '' &&
+        raw !== undefined &&
+        raw !== null &&
+        Number.isFinite(numeric) &&
+        numeric >= 0 &&
+        numeric <= exam.maxMarks
+          ? (numeric / exam.maxMarks) * 100
+          : null;
+      return { student, percent };
+    });
+
+    const filtered = rows.filter(({ student, percent }) => {
+      const matchesSearch =
+        !text ||
+        student.name.toLowerCase().includes(text) ||
+        String(student.rollNumber).includes(text);
+      const matchesFilter =
+        rowFilter === 'all' ||
+        (rowFilter === 'entered' && percent !== null) ||
+        (rowFilter === 'missing' && percent === null) ||
+        (rowFilter === 'below35' && percent !== null && percent < 35);
+      return matchesSearch && matchesFilter;
+    });
+
+    const direction = sortDir === 'asc' ? 1 : -1;
+    filtered.sort((a, b) => {
+      if (sortBy === 'name') return a.student.name.localeCompare(b.student.name) * direction;
+      if (sortBy === 'percent') {
+        return ((a.percent ?? -1) - (b.percent ?? -1)) * direction;
+      }
+      return compareRoll(a.student.rollNumber, b.student.rollNumber) * direction;
+    });
+
+    return filtered.map((row) => row.student);
+  }, [roster, scores, search, rowFilter, sortBy, sortDir, exam?.maxMarks]);
 
   useEffect(() => {
     if (!exam) return;
@@ -354,8 +403,57 @@ export default function MarksEntry() {
             </button>
           </div>
 
+          <div className="marks-filter-bar">
+            <div className="search-input marks-search">
+              <Search size={16} />
+              <input
+                type="search"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search name or roll number"
+                aria-label="Search students by name or roll"
+              />
+            </div>
+            <label className="marks-select">
+              <span>Show</span>
+              <select
+                value={rowFilter}
+                onChange={(event) => setRowFilter(event.target.value)}
+                aria-label="Filter students by score status"
+              >
+                <option value="all">All students</option>
+                <option value="entered">Score entered</option>
+                <option value="missing">Missing score</option>
+                <option value="below35">Below 35%</option>
+              </select>
+            </label>
+            <label className="marks-select">
+              <span>Sort by</span>
+              <select
+                value={sortBy}
+                onChange={(event) => setSortBy(event.target.value)}
+                aria-label="Sort students"
+              >
+                <option value="roll">Roll number</option>
+                <option value="name">Student name</option>
+                <option value="percent">Percentage</option>
+              </select>
+            </label>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => setSortDir((current) => (current === 'asc' ? 'desc' : 'asc'))}
+              aria-label={`Sort ${sortDir === 'asc' ? 'descending' : 'ascending'}`}
+            >
+              <ArrowDownUp size={15} /> {sortDir === 'asc' ? 'Ascending' : 'Descending'}
+            </button>
+            <Badge tone="neutral">
+              {visibleRoster.length}/{roster.length}
+            </Badge>
+          </div>
+
           <div className="marks-list">
-            {roster.map((student) => {
+            {visibleRoster.map((student) => {
               const raw = scores[student.id];
               const numeric = Number(raw);
               const valid = raw !== '' && Number.isFinite(numeric) && numeric >= 0 && numeric <= exam.maxMarks;
@@ -395,6 +493,11 @@ export default function MarksEntry() {
                 </div>
               );
             })}
+            {!visibleRoster.length ? (
+              <p className="marks-empty">
+                No students match this search or filter. Clear it to see the whole roster.
+              </p>
+            ) : null}
           </div>
 
           <div className="sticky-save">
