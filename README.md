@@ -103,7 +103,7 @@ All apps also expose one-click demo buttons on their sign-in screens.
 - **Announcements** — composer (audience, priority, pin) and searchable feed with pin/unpin/delete.
 - **Requests & leave** — filters, approval workflow, principal note, confidential principal vault restricted to SuperAdmin.
 - **Reports** — live attendance trend, enrollment and grade donuts, subject performance, risk table, plain-language executive summary, print/CSV.
-- **Data exchange** — two-way CSV system for all 15 datasets. Export a ZIP containing one CSV per collection plus `manifest.json`, `schema.json`, `data.json` and a README; import the ZIP, individual CSVs or a JSON backup. Files are parsed and validated entirely in the browser first, with per-dataset insert/update/remove counts, foreign-key and calculation checks, error report download, merge/upsert or replace modes, then atomic commit to the shared cache and live sync to both apps.
+- **Data exchange** — two-way CSV system for all 16 datasets. Export a ZIP containing one CSV per collection plus `manifest.json`, `schema.json`, `data.json` and a README; import the ZIP, individual CSVs or a JSON backup. Files are parsed and validated entirely in the browser first, with per-dataset insert/update/remove counts, foreign-key and calculation checks, error report download, merge/upsert or replace modes, then atomic commit to the shared cache and live sync to both apps.
 - Global search with `Ctrl/Cmd+K`, notification popover, live sync chip, responsive off-canvas sidebar.
 - PWA manifest, service worker, icons.
 
@@ -619,6 +619,7 @@ npm run test:polish                         # unsaved-attendance guard, help dia
 npm run test:curriculum                     # curriculum rules + AI/JSON parsing
 npm run test:curriculum:api                 # curriculum API, isolated :4100
 npm run test:curriculum:ui                  # admin curriculum page, isolated API + Vite
+npm run test:data-exchange                  # CSV bundle includes the curricula dataset
 node server/test/profile-photo.e2e.mjs      # needs dev servers running
 node server/test/profile-ui.e2e.mjs
 node server/test/live-sync.e2e.mjs

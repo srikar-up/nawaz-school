@@ -35,6 +35,7 @@
     "test:curriculum": "node --test server/test/curriculum.test.mjs",
     "test:curriculum:api": "node server/test/curriculum.e2e.mjs",
     "test:curriculum:ui": "node server/test/curriculum-ui.e2e.mjs",
+    "test:data-exchange": "node server/test/data-exchange.e2e.mjs",
     "test:production": "node server/test/production.e2e.mjs"
   },
   "devDependencies": {
