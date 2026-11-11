@@ -376,7 +376,7 @@ export default function Reports() {
                     <tr key={student.id}>
                       <td>
                         <span className="table-person muted-person">
-                          <Avatar name={student.name} size={30} />
+                          <Avatar name={student.name} size={30} photo={student.photo} />
                           <span>
                             <strong>{student.name}</strong>
                             <small>Roll {student.rollNumber}</small>

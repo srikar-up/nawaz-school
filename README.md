@@ -75,7 +75,7 @@ All apps also expose one-click demo buttons on their sign-in screens.
 
 - Sign-in with demo accounts and university-style demo shortcut.
 - **Home** — greeting, live date, next class, attendance hero, quick actions, today's schedule, urgent notice, attendance summary, risk students, work counters, recent notices.
-- **Attendance** — class selector for incharge sections, date/session, default present, Present/Absent/Late/Excused control, reason presets + custom note, live summary, edit after submission, save to shared API, plus a GitHub-style **monthly student register**: one row per student, every day across the row, status-coloured squares and a rate column.
+- **Attendance** — class selector for incharge sections, date/session, default present, Present/Absent/Late/Excused control, reason presets + custom note, live summary, edit after submission, save to shared API, plus a GitHub-style **monthly student register**: one row per student, every day across the row, status-coloured squares and a rate column. The session picker follows the school attendance mode set by the admin: either **Morning / Afternoon** or a single **Full day** register.
 - **Classes** — assigned sections, class rosters, attendance and scores, student detail sheet, guardian phone action.
 - **Tasks** — school-wide exam list with the assigned teacher named on every card; only the assigned teacher can enter marks, while colleagues' submitted results open read-only. Includes automatic open/submitted states, marks validation, live average, confirmation and exam lock; assignment list and create/review/delete flow.
 - **Timetable** — follows the admin-configured Monday–Friday or Monday–Saturday week, including Saturday periods created in the admin builder, with live/next period highlighting and whole-school view.
@@ -91,7 +91,8 @@ All apps also expose one-click demo buttons on their sign-in screens.
 
 - Split-screen sign-in with SuperAdmin/SubAdmin demo accounts.
 - **Overview** — school KPIs, pictogram launchpad, attendance trend chart, agenda, class registers, risk radar, recent announcements and activity.
-- **Attendance** — date stepper, school-wide stats, class submission status, register review/correction drawer, CSV export, and a GitHub-style **monthly student register** with whole-school/class filtering, student search, status-coloured day squares and per-student rates.
+- **Attendance** — date stepper, school-wide stats, class submission status, register review/correction drawer, CSV export, and a GitHub-style **monthly student register** with whole-school/class filtering, student search, status-coloured day squares and per-student rates. A register switch toggles between Morning / Afternoon and the single Full day view, matching the school attendance mode.
+- **Settings** — school profile, attendance mode (morning + afternoon, or one full-day register), SupAdmin guard, account card, data connection info, JSON backup, student CSV export, data-exchange shortcut, admin install prompt, demo reset, sign out.
 - **Students** — searchable/filterable/paginated directory, add/edit/delete, CSV import and export, student detail drawer with attendance and scores.
 - **Staff & access** — SuperAdmin-only directory, roles and access levels, staff profile, create/edit/delete, attendance status, self-protection rules.
 - **Classes & subjects** — class selector, subject-teacher assignment with instant timetable propagation, syllabus progress, full weekly timetable grid with a link into the builder.
@@ -102,7 +103,6 @@ All apps also expose one-click demo buttons on their sign-in screens.
 - **Requests & leave** — filters, approval workflow, principal note, confidential principal vault restricted to SuperAdmin.
 - **Reports** — live attendance trend, enrollment and grade donuts, subject performance, risk table, plain-language executive summary, print/CSV.
 - **Data exchange** — two-way CSV system for all 15 datasets. Export a ZIP containing one CSV per collection plus `manifest.json`, `schema.json`, `data.json` and a README; import the ZIP, individual CSVs or a JSON backup. Files are parsed and validated entirely in the browser first, with per-dataset insert/update/remove counts, foreign-key and calculation checks, error report download, merge/upsert or replace modes, then atomic commit to the shared cache and live sync to both apps.
-- **Settings** — school profile, SupAdmin guard, account card, data connection info, JSON backup, student CSV export, data-exchange shortcut, admin install prompt, demo reset, sign out.
 - Global search with `Ctrl/Cmd+K`, notification popover, live sync chip, responsive off-canvas sidebar.
 - PWA manifest, service worker, icons.
 
@@ -120,6 +120,7 @@ All apps also expose one-click demo buttons on their sign-in screens.
 - Timetable endpoints for cell upsert/delete and week settings, with teacher/class overlap checks, Monday–Saturday configuration, Sunday editing window and publish lock.
 - Atomic CSV import endpoint (`POST /api/import`) with SuperAdmin guard, schema version check, duplicate-ID/foreign-key/nested-entry validation, derived-field recalculation and merge/replace modes.
 - Server-side authorization checks for admin, SuperAdmin and class attendance incharge.
+- Attendance-mode enforcement: the server accepts only the session types that match `meta.attendanceMode` (morning + afternoon, or one full-day register) and rejects the rest without writing.
 - Static hosting of both built PWAs and a launcher page with live API status.
 - Demo reset endpoint.
 
@@ -439,9 +440,18 @@ npm start              # serve API + both built PWAs on :4000
 npm run seed           # force-reseed the JSON demo database
 npm run test:api       # shared-data smoke tests (server must be running)
 npm run test:ui        # Chrome route checks + screenshots (server must be running)
+npm run test:attendance       # attendance-mode rules (no servers needed)
+npm run test:attendance:api   # API enforcement on an isolated instance
+npm run test:attendance:ui    # teacher + admin mode UI (dev servers needed)
+npm run test:attendance:flow  # full-day submit, isolated API + teacher build
+npm run test:photo           # profile photo crop/preview/upload, isolated
+npm run test:polish          # unsaved guard, help dialog, full-day topbar (dev servers)
 ```
 
-For the visual prototype and design rationale, see `school_rms_ui_design_system.md`, the reference images in `reffrense image/`, and the generated screenshots in `screenshots/`.
+For the visual prototype and design rationale, see `target.md` (the UI/UX design
+system for both apps) and `school_rms_architecture_lifecycle_blueprint.md`
+(architecture and lifecycle), plus the reference images in `reffrense image/`
+and the generated screenshots in `screenshots/`.
 
 ---
 
@@ -508,24 +518,68 @@ Firebase Auth, and the API still sees only an ID token.
 
 ### Profile photos
 
-1. Browser compresses to WebP (512px, quality 0.8).
-2. `POST /api/auth/cloudinary-sign` returns parameters signed for that exact
+1. Choosing a file opens a **crop and preview dialog** first: drag to reposition,
+   zoom 1×–3×, rotate in 90° steps, reset, and see the result at small and large
+   avatar sizes. Nothing is uploaded until **Save photo** is pressed.
+2. The framed square is rendered to a 512×512 WebP (quality 0.8) in the browser.
+3. `POST /api/auth/cloudinary-sign` returns parameters signed for that exact
    `public_id` - after checking the caller may edit that record.
-3. Browser uploads straight to Cloudinary.
-4. `PATCH /api/{staff|students}/:id/photo` stores
+4. Browser uploads straight to Cloudinary.
+5. `PATCH /api/{staff|students}/:id/photo` stores
    `{ url, publicId, updatedAt, updatedBy }`.
 
+`Avatar` accepts the stored `photo` metadata everywhere, so an uploaded image
+replaces the initials on the profile, Home, More, the admin topbar/sidebar,
+student and staff lists, and reports. If an image fails to load, the avatar
+falls back to initials instead of a broken image.
+
 RBAC: Principal / SuperAdmin edit anyone; a teacher edits only their own photo.
+
+### Attendance mode
+
+Schools either keep **two registers a day** (morning and afternoon) or a
+**single full-day register**. The admin picks the mode in **Settings →
+Attendance mode**; it is stored as `meta.attendanceMode`:
+
+| Value | Session types | Teacher UI |
+| --- | --- | --- |
+| `twoSessions` (default) | `Morning`, `Afternoon` | segmented Morning / Afternoon control |
+| `fullDay` | `FullDay` | one **Full day** button plus a short explanation |
+
+Rules:
+
+- The server is the source of truth. `POST /api/attendance` rejects a session
+  type that does not match the mode with a plain-language `400`, and nothing is
+  written.
+- `PATCH /api/meta` accepts only `twoSessions` or `fullDay`; anything else is a
+  `400`.
+- Changing the mode never rewrites existing registers. Old sessions keep the
+  type they were submitted with, and admin views filter by the selected type.
+- The teacher UI follows a live mode change without a reload; a teacher's
+  in-progress selection is replaced only when the saved mode actually changes.
+- Imports and backups that predate the setting, or carry an unknown value, fall
+  back to the current server mode instead of failing.
+- Shared helpers live in `server/src/attendance-mode.js`, with identical copies
+  in `teacher-app/src/lib/attendance.js` and
+  `admin-panel/src/lib/attendance.js`; a unit test checks the three stay in
+  sync.
 
 ### Tests
 
 ```
-npm --workspace server run test:db          # Firestore architecture, isolated namespace
+npm run test:db                             # Firestore architecture, isolated namespace
+npm run test:auth                           # auth identity mapping
+npm run test:attendance                     # attendance-mode rules + app parity
+npm run test:attendance:api                 # mode enforcement, isolated API :4100
+npm run test:attendance:ui                  # teacher + admin UI, needs dev servers
+npm run test:attendance:flow                # full-day submit through the teacher UI, isolated
+npm run test:photo                          # crop/preview/upload, isolated API + Cloudinary folder
+npm run test:polish                         # unsaved-attendance guard, help dialog, full-day topbar
 node server/test/profile-photo.e2e.mjs      # needs dev servers running
 node server/test/profile-ui.e2e.mjs
 node server/test/live-sync.e2e.mjs
 node server/test/photo-cleanup.e2e.mjs
-node server/test/production.e2e.mjs         # hits the three deployed Workers
+npm run test:production                     # hits the three deployed Workers
 node server/test/google-mapping.e2e.mjs     # verified-email identity path, self-cleaning
 ```
 

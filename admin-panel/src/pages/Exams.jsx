@@ -367,7 +367,7 @@ export default function Exams() {
                       </td>
                       <td>
                         <span className="table-person muted-person">
-                          <Avatar name={teacher?.name} size={28} />
+                          <Avatar name={teacher?.name} size={28} photo={teacher?.photo} />
                           <span>
                             <strong>{teacher?.name || 'Unassigned'}</strong>
                             <small>{teacher?.department}</small>
@@ -522,7 +522,7 @@ export default function Exams() {
                               <td>{student.rollNumber}</td>
                               <td>
                                 <span className="table-person muted-person">
-                                  <Avatar name={student.name} size={30} />
+                                  <Avatar name={student.name} size={30} photo={student.photo} />
                                   <span>
                                     <strong>{student.name}</strong>
                                     <small>{student.code}</small>

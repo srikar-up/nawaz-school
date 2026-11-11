@@ -60,7 +60,7 @@ export default function More() {
       <PageHead eyebrow="Workspace" title="More" subtitle="Everything else, kept out of your way." />
 
       <Link to="/profile" className="profile-summary-card">
-        <Avatar name={user.name} size={54} />
+        <Avatar name={user.name} size={54} photo={user.photo} />
         <div>
           <h2>{user.name}</h2>
           <p>{user.department}</p>

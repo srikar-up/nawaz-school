@@ -239,7 +239,11 @@ export default function Requests() {
                     </td>
                     <td>
                       <span className="table-person muted-person">
-                        <Avatar name={ticket.senderName} size={28} />
+                        <Avatar
+                          name={ticket.senderName}
+                          size={28}
+                          photo={data.staff.find((member) => member.id === ticket.senderStaffId)?.photo}
+                        />
                         <span>
                           <strong>{ticket.senderName}</strong>
                           <small>{ticket.room || 'Staff request'}</small>
@@ -343,7 +347,11 @@ export default function Requests() {
 
             <div className="request-detail-head">
               <div className="request-sender">
-                <Avatar name={selected.senderName} size={46} />
+                <Avatar
+                  name={selected.senderName}
+                  size={46}
+                  photo={data.staff.find((member) => member.id === selected.senderStaffId)?.photo}
+                />
                 <div>
                   <strong>{selected.senderName}</strong>
                   <span>{selected.senderEmail}</span>

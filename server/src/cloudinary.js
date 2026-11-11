@@ -4,9 +4,13 @@ const CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME || '';
 const API_KEY = process.env.CLOUDINARY_API_KEY || '';
 const API_SECRET = process.env.CLOUDINARY_API_SECRET || '';
 
+// Test runs can isolate their assets from real uploads. Production keeps the
+// default `school` prefix.
+const FOLDER_PREFIX = (process.env.CLOUDINARY_FOLDER_PREFIX || 'school').replace(/\/+$/, '');
+
 export const PHOTO_FOLDERS = Object.freeze({
-  staff: 'school/staff',
-  students: 'school/students',
+  staff: `${FOLDER_PREFIX}/staff`,
+  students: `${FOLDER_PREFIX}/students`,
 });
 
 export function isCloudinaryConfigured() {

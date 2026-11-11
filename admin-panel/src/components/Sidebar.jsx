@@ -129,7 +129,7 @@ export default function Sidebar({ open, onClose }) {
           </a>
 
           <NavLink to="/settings" className="sidebar-user">
-            <Avatar name={user?.name} size={38} />
+            <Avatar name={user?.name} size={38} photo={user?.photo} />
             <span>
               <strong>{user?.name}</strong>
               <small>{user?.accessLevel}</small>

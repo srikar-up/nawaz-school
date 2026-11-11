@@ -4,6 +4,7 @@ import {
   Bell,
   CalendarCheck2,
   ChevronDown,
+  HelpCircle,
   Inbox,
   Menu,
   Megaphone,
@@ -14,12 +15,14 @@ import {
 } from 'lucide-react';
 import { useAppData } from '../context/AppDataContext';
 import Avatar from './Avatar';
+import HelpDialog from './HelpDialog';
 import {
   examEffectiveStatus,
   isStudentAtRisk,
   relativeTime,
   todayISO,
 } from '../lib/format';
+import { attendanceModeOf, primarySessionType } from '../lib/attendance';
 
 const TITLES = {
   '/overview': 'Overview',
@@ -40,6 +43,7 @@ export default function Topbar({ onMenu, onSearch }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
 
   const title = TITLES[location.pathname] || 'Overview';
   const pendingRequests = data.rmsTickets.filter(
@@ -55,7 +59,7 @@ export default function Topbar({ onMenu, onSearch }) {
         (session) =>
           session.classIdSection === cls.id &&
           session.date === todayISO() &&
-          session.sessionType === 'Morning'
+          session.sessionType === primarySessionType(attendanceModeOf(data.meta))
       )
   );
   const openExamCount = data.exams.filter(
@@ -120,9 +124,19 @@ export default function Topbar({ onMenu, onSearch }) {
       </button>
 
       <div className="topbar-actions">
+        <button
+          type="button"
+          className="topbar-help"
+          onClick={() => setHelpOpen(true)}
+          aria-label="Open help and quick guides"
+        >
+          <HelpCircle size={16} />
+          <span>Help</span>
+        </button>
+
         <span className={`sync-chip ${offline ? 'offline' : live ? 'live' : 'warn'}`}>
           {offline ? <WifiOff size={13} /> : <Wifi size={13} />}
-          <span>{offline ? 'Offline' : live ? 'Live sync' : 'Reconnecting'}</span>
+          <span>{offline ? 'Offline' : live ? 'Up to date' : 'Reconnecting'}</span>
         </span>
 
         <div className="topbar-bell-wrap">
@@ -182,7 +196,7 @@ export default function Topbar({ onMenu, onSearch }) {
         </div>
 
         <button type="button" className="topbar-user" onClick={() => navigate('/settings')}>
-          <Avatar name={user?.name} size={36} />
+          <Avatar name={user?.name} size={36} photo={user?.photo} />
           <span className="topbar-user-text">
             <strong>{user?.name}</strong>
             <small>{user?.accessLevel}</small>
@@ -191,6 +205,8 @@ export default function Topbar({ onMenu, onSearch }) {
         </button>
         {permissions.subAdmin ? <span className="topbar-role-flag">Ops</span> : null}
       </div>
+
+      <HelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} meta={data.meta} />
     </header>
   );
 }

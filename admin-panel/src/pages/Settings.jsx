@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
   Building2,
+  CalendarCheck2,
   CheckCircle2,
   CloudDownload,
   Database,
@@ -27,6 +28,7 @@ import Badge from '../components/Badge';
 import Modal from '../components/Modal';
 import PageHeader from '../components/PageHeader';
 import { useInstallPrompt } from '../lib/useInstallPrompt';
+import { attendanceModeOf } from '../lib/attendance';
 import {
   downloadCsv,
   downloadJson,
@@ -63,6 +65,9 @@ export default function Settings() {
     principalName: data.meta.principalName,
   });
   const [busy, setBusy] = useState(false);
+  const [attendanceMode, setAttendanceMode] = useState(() => attendanceModeOf(data.meta));
+  const savedModeRef = useRef(attendanceModeOf(data.meta));
+  const [modeBusy, setModeBusy] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
   const [signOutOpen, setSignOutOpen] = useState(false);
 
@@ -79,6 +84,16 @@ export default function Settings() {
     });
   }, [data.meta]);
 
+  // Only reset the radio when the saved mode itself changes, so a background
+  // refresh cannot discard an unsaved selection.
+  useEffect(() => {
+    const saved = attendanceModeOf(data.meta);
+    if (saved !== savedModeRef.current) {
+      savedModeRef.current = saved;
+      setAttendanceMode(saved);
+    }
+  }, [data.meta]);
+
   const setField = (field, value) =>
     setForm((current) => ({ ...current, [field]: value }));
 
@@ -93,6 +108,24 @@ export default function Settings() {
       notify(error.message, 'error');
     } finally {
       setBusy(false);
+    }
+  };
+
+  const saveAttendanceMode = async () => {
+    setModeBusy(true);
+    try {
+      await api.updateMeta(user.id, { attendanceMode });
+      await refresh({ silent: true });
+      notify(
+        attendanceMode === 'fullDay'
+          ? 'Attendance mode saved: one full-day register.'
+          : 'Attendance mode saved: morning and afternoon registers.',
+        'success'
+      );
+    } catch (error) {
+      notify(error.message, 'error');
+    } finally {
+      setModeBusy(false);
     }
   };
 
@@ -266,6 +299,80 @@ export default function Settings() {
           </form>
         </section>
 
+        <section className="admin-card attendance-mode-card">
+          <div className="admin-card-head">
+            <div>
+              <h2>Attendance mode</h2>
+              <p>How teachers record the daily register.</p>
+            </div>
+            <span className="settings-icon">
+              <CalendarCheck2 size={19} />
+            </span>
+          </div>
+
+          {!permissions.superAdmin ? (
+            <div className="settings-warning">
+              <ShieldCheck size={16} />
+              Only a SuperAdmin can change the attendance mode.
+            </div>
+          ) : null}
+
+          <div className="attendance-mode-options" role="radiogroup" aria-label="Attendance mode">
+            <label
+              className={`attendance-mode-option ${
+                attendanceMode === 'twoSessions' ? 'active' : ''
+              }`}
+            >
+              <input
+                type="radio"
+                name="attendanceMode"
+                value="twoSessions"
+                checked={attendanceMode === 'twoSessions'}
+                onChange={() => setAttendanceMode('twoSessions')}
+                disabled={!permissions.superAdmin}
+              />
+              <span>
+                <strong>Morning + afternoon</strong>
+                <small>Two registers a day. Each half is marked separately.</small>
+              </span>
+            </label>
+            <label
+              className={`attendance-mode-option ${
+                attendanceMode === 'fullDay' ? 'active' : ''
+              }`}
+            >
+              <input
+                type="radio"
+                name="attendanceMode"
+                value="fullDay"
+                checked={attendanceMode === 'fullDay'}
+                onChange={() => setAttendanceMode('fullDay')}
+                disabled={!permissions.superAdmin}
+              />
+              <span>
+                <strong>One full-day register</strong>
+                <small>A single roll-call covers the whole day.</small>
+              </span>
+            </label>
+          </div>
+
+          <div className="admin-form-actions">
+            <button
+              type="button"
+              className="admin-btn admin-btn-primary"
+              onClick={saveAttendanceMode}
+              disabled={
+                modeBusy ||
+                !permissions.superAdmin ||
+                attendanceMode === attendanceModeOf(data.meta)
+              }
+            >
+              {modeBusy ? <span className="admin-spinner" /> : <Save size={16} />}
+              {modeBusy ? 'Saving…' : 'Save attendance mode'}
+            </button>
+          </div>
+        </section>
+
         <aside className="settings-aside">
           <section className="admin-card account-card">
             <div className="admin-card-head">
@@ -318,19 +425,19 @@ export default function Settings() {
           <section className="admin-card connection-card">
             <div className="admin-card-head">
               <div>
-                <h2>Data connection</h2>
-                <p>Temporary local cache</p>
+                <h2>School records</h2>
+                <p>Where the admin console reads and saves data</p>
               </div>
               {offline ? <WifiOff size={18} className="danger-text" /> : <Wifi size={18} className="success-text" />}
             </div>
             <div className="connection-status">
               <span className={`connection-dot ${offline ? 'offline' : 'online'}`} />
               <div>
-                <strong>{offline ? 'Offline preview' : 'Live shared cache'}</strong>
+                <strong>{offline ? 'Working offline' : 'Records are up to date'}</strong>
                 <span>
                   {lastSyncedAt
-                    ? `Last synced ${relativeTime(lastSyncedAt.toISOString())}`
-                    : 'Waiting for the first sync'}
+                    ? `Checked ${relativeTime(lastSyncedAt.toISOString())}`
+                    : 'Checking the school records'}
                 </span>
               </div>
               <button

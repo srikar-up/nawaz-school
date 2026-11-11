@@ -23,6 +23,35 @@ const env = Object.fromEntries(
     })
 );
 
+// Cloudinary credentials let the test ask the Admin API directly instead of
+// waiting on CDN invalidation, which can take longer than a minute.
+const serverEnv = Object.fromEntries(
+  fs
+    .readFileSync(path.join(ROOT, 'server', '.env'), 'utf8')
+    .split(/\r?\n/)
+    .filter((line) => /^[A-Z_]+=/.test(line))
+    .map((line) => {
+      const index = line.indexOf('=');
+      return [line.slice(0, index), line.slice(index + 1)];
+    })
+);
+
+async function assetExists(publicId) {
+  const response = await fetch(
+    `https://api.cloudinary.com/v1_1/${serverEnv.CLOUDINARY_CLOUD_NAME}/resources/image/upload?public_ids[]=${encodeURIComponent(publicId)}`,
+    {
+      headers: {
+        Authorization: `Basic ${Buffer.from(
+          `${serverEnv.CLOUDINARY_API_KEY}:${serverEnv.CLOUDINARY_API_SECRET}`
+        ).toString('base64')}`,
+      },
+    }
+  );
+  if (response.status === 404) return false;
+  const body = await response.json().catch(() => ({}));
+  return Boolean(body.resources?.length);
+}
+
 const EMAIL = 'cleanup-test@nawazschool.edu';
 
 async function signIn(email, password) {
@@ -106,15 +135,18 @@ console.log('asset before delete:', before.status, before.status === 200 ? 'OK' 
 await call(`/api/staff/${id}`, { method: 'DELETE' });
 console.log('record deleted:', id);
 
-let after = null;
-for (let attempt = 0; attempt < 10; attempt += 1) {
-  await new Promise((resolve) => setTimeout(resolve, 1000));
-  after = await fetch(uploaded.secure_url, { method: 'HEAD' });
-  if (after.status === 404) break;
+let exists = true;
+for (let attempt = 0; attempt < 20; attempt += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  exists = await assetExists(uploaded.public_id);
+  if (!exists) break;
 }
-console.log('asset after delete:', after.status, after.status === 404 ? 'REMOVED' : 'STILL PRESENT');
+
+// The Admin API is authoritative; the CDN copy may take longer to invalidate.
+const after = await fetch(uploaded.secure_url, { method: 'HEAD' }).catch(() => ({ status: 0 }));
+console.log('asset after delete:', exists ? 'STILL PRESENT' : 'REMOVED', `(cdn ${after.status})`);
 
 const state = await call('/api/state');
 console.log('record still listed:', state.staff.some((member) => member.id === id));
 
-if (after.status !== 404) process.exit(1);
+if (exists) process.exit(1);

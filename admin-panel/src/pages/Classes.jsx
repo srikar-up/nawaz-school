@@ -216,7 +216,7 @@ export default function Classes() {
                       </div>
                     </div>
                     <div className="subject-teacher-select">
-                      <Avatar name={teacher?.name} size={30} />
+                      <Avatar name={teacher?.name} size={30} photo={teacher?.photo} />
                       <select
                         value={subject.assignedStaffId}
                         onChange={(event) => assignTeacher(subject, event.target.value)}
@@ -253,7 +253,7 @@ export default function Classes() {
                 </div>
               </div>
               <div className="class-teacher-profile">
-                <Avatar name={classTeacher?.name} size={54} />
+                <Avatar name={classTeacher?.name} size={54} photo={classTeacher?.photo} />
                 <div>
                   <strong>{classTeacher?.name || 'Unassigned'}</strong>
                   <span>{classTeacher?.department || 'No department'}</span>
@@ -277,7 +277,7 @@ export default function Classes() {
               <div className="admin-card-head">
                 <div>
                   <h2>Today’s register</h2>
-                  <p>Morning attendance</p>
+                  <p>Today's attendance</p>
                 </div>
                 <Badge tone={session ? 'success' : 'warning'} dot>
                   {session ? 'Submitted' : 'Waiting'}

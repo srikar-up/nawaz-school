@@ -32,11 +32,16 @@ import {
   formatDate,
   formatDateLong,
   formatTime,
-  overallAttendanceForDate,
   relativeTime,
   schoolDaysBack,
   todayISO,
 } from '../lib/format';
+import {
+  attendanceModeOf,
+  primarySessionType,
+  sessionTypeLabel,
+  sessionTypesFor,
+} from '../lib/attendance';
 
 const STATUSES = ['present', 'absent', 'late', 'excused'];
 const STATUS_LABELS = { present: 'Present', absent: 'Absent', late: 'Late', excused: 'Excused' };
@@ -54,14 +59,25 @@ export default function Attendance() {
   );
   const [draft, setDraft] = useState({});
   const [saving, setSaving] = useState(false);
+  const mode = attendanceModeOf(data.meta);
+  const sessionTypes = useMemo(() => sessionTypesFor(mode), [mode]);
+  const [sessionType, setSessionType] = useState(() => primarySessionType(mode));
+
+  // Keep the selected register valid if the school switches mode while open.
+  useEffect(() => {
+    if (!sessionTypes.includes(sessionType)) setSessionType(sessionTypes[0]);
+  }, [sessionTypes, sessionType]);
 
   const sessions = useMemo(
-    () => data.attendanceSessions.filter((session) => session.date === date),
-    [data.attendanceSessions, date]
+    () =>
+      data.attendanceSessions.filter(
+        (session) => session.date === date && session.sessionType === sessionType
+      ),
+    [data.attendanceSessions, date, sessionType]
   );
-  const dayStats = overallAttendanceForDate(data, date);
+  const dayStats = attendanceStats(sessions.flatMap((session) => session.entries || []));
   const classRows = data.classes.map((cls) => {
-    const session = findSession(data, cls.id, date);
+    const session = findSession(data, cls.id, date, sessionType);
     const stats = session ? attendanceStats(session.entries) : null;
     const inchargeId = data.classIncharges.find(
       (entry) => entry.classIdSection === cls.id
@@ -79,21 +95,24 @@ export default function Attendance() {
 
   useEffect(() => {
     if (!reviewClass) return;
-    const session = findSession(data, reviewClass.cls.id, date);
+    const session = findSession(data, reviewClass.cls.id, date, sessionType);
     const map = {};
     reviewRoster.forEach((student) => {
       const entry = session?.entries.find((item) => item.studentId === student.id);
       map[student.id] = entry?.status || 'present';
     });
     setDraft(map);
-  }, [reviewClassId, date, data.attendanceSessions.length, reviewRoster.length]);
+  }, [reviewClassId, date, sessionType, data.attendanceSessions.length, reviewRoster.length]);
 
   const draftStats = attendanceStats(
     reviewRoster.map((student) => ({ status: draft[student.id] || 'present' }))
   );
 
   const trend = schoolDaysBack(7).map((day) => {
-    const stats = overallAttendanceForDate(data, day);
+    const entries = data.attendanceSessions
+      .filter((session) => session.date === day && session.sessionType === sessionType)
+      .flatMap((session) => session.entries || []);
+    const stats = attendanceStats(entries);
     return {
       label: new Date(`${day}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'short' }),
       value: stats.rate,
@@ -107,7 +126,7 @@ export default function Attendance() {
       await api.saveAttendance(user.id, {
         classIdSection: reviewClass.cls.id,
         date,
-        sessionType: 'Morning',
+        sessionType,
         entries: reviewRoster.map((student) => ({
           studentId: student.id,
           status: draft[student.id] || 'present',
@@ -204,11 +223,35 @@ export default function Attendance() {
         </div>
         <div className="attendance-toolbar-note">
           <Clock3 size={14} />
-          <span>Morning session · {formatDate(date)}</span>
+          <span>
+            {sessionTypeLabel(sessionType)} register · {formatDate(date)}
+          </span>
           <Badge tone={submitted.length === data.classes.length ? 'success' : 'warning'}>
             {submitted.length}/{data.classes.length} submitted
           </Badge>
         </div>
+      </div>
+
+      <div className="attendance-session-bar">
+        <span className="attendance-session-label">Register</span>
+        <div className="admin-session-switch" role="group" aria-label="Attendance session">
+          {sessionTypes.map((type) => (
+            <button
+              key={type}
+              type="button"
+              className={sessionType === type ? 'active' : ''}
+              aria-pressed={sessionType === type}
+              onClick={() => setSessionType(type)}
+            >
+              {sessionTypeLabel(type)}
+            </button>
+          ))}
+        </div>
+        <span className="attendance-session-hint">
+          {mode === 'fullDay'
+            ? 'One register covers the whole day.'
+            : 'Morning and afternoon are tracked separately.'}
+        </span>
       </div>
 
       <div className="mini-stat-row">
@@ -335,7 +378,7 @@ export default function Attendance() {
             <div className="admin-card-head">
               <div>
                 <h2>Submission tracker</h2>
-                <p>Morning registers for {formatDate(date)}</p>
+                <p>{sessionTypeLabel(sessionType)} registers for {formatDate(date)}</p>
               </div>
             </div>
             <div className="tracker-list">
@@ -371,7 +414,7 @@ export default function Attendance() {
 
       <Drawer
         open={Boolean(reviewClass)}
-        title={reviewClass ? `${reviewClass.cls.displayName} · Morning register` : 'Register'}
+        title={reviewClass ? `${reviewClass.cls.displayName} · ${sessionTypeLabel(sessionType)} register` : 'Register'}
         subtitle={reviewClass ? `${formatDate(date)} · ${reviewClass.incharge?.name || 'No incharge'}` : ''}
         onClose={() => setReviewClassId(null)}
         width={540}
@@ -435,7 +478,7 @@ export default function Attendance() {
                 return (
                   <div key={student.id} className="register-student-row">
                     <div className="register-student-info">
-                      <Avatar name={student.name} size={34} />
+                      <Avatar name={student.name} size={34} photo={student.photo} />
                       <span>
                         <strong>{student.name}</strong>
                         <small>

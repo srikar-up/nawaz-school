@@ -1215,6 +1215,7 @@ export function buildSeed() {
       shortName: 'Nawaz School',
       tagline: 'Learn. Grow. Lead.',
       academicYear: '2026–2027',
+      attendanceMode: 'twoSessions',
       address: '12-B Model Town, Lahore, Pakistan',
       phone: '+92 42 3577 1200',
       email: 'office@nawazschool.edu',

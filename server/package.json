@@ -11,6 +11,12 @@
                     "seed":  "node --env-file-if-exists=.env src/seed-runner.js",
                     "test:db":  "node --test test/firestore.test.mjs",
                     "test:auth":  "node --test test/auth-mapping.test.mjs",
+                    "test:attendance":  "node --test test/attendance-mode.test.mjs",
+                    "test:attendance:api":  "node test/attendance-mode.e2e.mjs",
+                    "test:attendance:ui":  "node test/attendance-ui.e2e.mjs",
+                    "test:attendance:flow":  "node test/attendance-flow.e2e.mjs",
+                    "test:polish":  "node test/polish-ui.e2e.mjs",
+                    "test:photo":  "node test/photo-crop.e2e.mjs",
                     "create:users":  "node --env-file-if-exists=.env scripts/create-auth-users.mjs",
                     "test:google":  "node --env-file-if-exists=.env test/google-mapping.e2e.mjs",
                     "deploy":  "wrangler deploy --config wrangler.jsonc"

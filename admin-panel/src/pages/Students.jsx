@@ -333,7 +333,7 @@ export default function Students() {
                         className="table-person"
                         onClick={() => setSearchParams({ student: student.id })}
                       >
-                        <Avatar name={student.name} size={34} />
+                        <Avatar name={student.name} size={34} photo={student.photo} />
                         <span>
                           <strong>{student.name}</strong>
                           <small>{student.code}</small>
@@ -607,7 +607,7 @@ export default function Students() {
       >
         {deleteTarget ? (
           <div className="delete-summary">
-            <Avatar name={deleteTarget.name} size={46} />
+            <Avatar name={deleteTarget.name} size={46} photo={deleteTarget.photo} />
             <div>
               <strong>{deleteTarget.name}</strong>
               <span>
@@ -682,7 +682,7 @@ function StudentDetail({ data, student, onEdit }) {
   return (
     <div className="student-detail">
       <div className="student-detail-top">
-        <Avatar name={student.name} size={64} />
+        <Avatar name={student.name} size={64} photo={student.photo} />
         <div>
           <h2>{student.name}</h2>
           <p>

@@ -277,7 +277,7 @@ export default function MarksEntry() {
               return (
                 <div key={record.id} className="score-table-row">
                   <span className="score-table-student">
-                    <Avatar name={record.studentName} size={32} />
+                    <Avatar name={record.studentName} size={32} photo={student?.photo} />
                     <span>
                       <strong>{record.studentName}</strong>
                       <small>Roll {student?.rollNumber || '—'}</small>
@@ -364,7 +364,7 @@ export default function MarksEntry() {
               return (
                 <div key={student.id} className={`mark-row ${valid && percent < 35 ? 'mark-row-low' : ''}`}>
                   <div className="mark-student">
-                    <Avatar name={student.name} size={36} />
+                    <Avatar name={student.name} size={36} photo={student.photo} />
                     <span>
                       <strong>{student.name}</strong>
                       <small>

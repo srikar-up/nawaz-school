@@ -345,7 +345,7 @@ export default function Overview() {
           <div className="admin-card-head">
             <div>
               <h2>Class registers</h2>
-              <p>Morning attendance status by section</p>
+              <p>Today's attendance status by section</p>
             </div>
             <Link to="/attendance" className="admin-ghost-link">
               Open attendance <ArrowRight size={14} />
@@ -393,7 +393,7 @@ export default function Overview() {
                   to={`/students?student=${student.id}`}
                   className="risk-row"
                 >
-                  <Avatar name={student.name} size={36} />
+                  <Avatar name={student.name} size={36} photo={student.photo} />
                   <span className="risk-name">
                     <strong>{student.name}</strong>
                     <small>

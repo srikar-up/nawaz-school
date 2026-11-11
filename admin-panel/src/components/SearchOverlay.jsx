@@ -154,7 +154,7 @@ export default function SearchOverlay({ open, onClose }) {
                       className="search-result"
                       onClick={() => go(`/students?student=${student.id}`)}
                     >
-                      <Avatar name={student.name} size={32} />
+                      <Avatar name={student.name} size={32} photo={student.photo} />
                       <span>
                         <strong>{student.name}</strong>
                         <small>
@@ -177,7 +177,7 @@ export default function SearchOverlay({ open, onClose }) {
                       className="search-result"
                       onClick={() => go(`/staff?staff=${member.id}`)}
                     >
-                      <Avatar name={member.name} size={32} />
+                      <Avatar name={member.name} size={32} photo={member.photo} />
                       <span>
                         <strong>{member.name}</strong>
                         <small>

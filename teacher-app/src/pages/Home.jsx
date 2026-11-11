@@ -38,6 +38,11 @@ import {
   todayISO,
 } from '../lib/format';
 import { getTimetableConfig } from '../lib/timetable';
+import {
+  attendanceModeOf,
+  primarySessionType,
+  sessionTypeLabel,
+} from '../lib/attendance';
 
 function scheduleForTeacher(data, staffId, day) {
   return data.timetable
@@ -82,8 +87,9 @@ export default function Home() {
   const nextPeriod = isSchoolDay
     ? periods.find((period) => timeToMinutes(period.startTime) > nowMinutes)
     : periods[0];
+  const daySessionType = primarySessionType(attendanceModeOf(data.meta));
   const session = primaryClass
-    ? findSession(data, primaryClass.id, today, 'Morning')
+    ? findSession(data, primaryClass.id, today, daySessionType)
     : null;
   const stats = session ? attendanceStats(session.entries) : null;
   const primaryRoster = primaryClass
@@ -138,7 +144,7 @@ export default function Home() {
         <div className="home-hero-decor home-hero-decor-b" aria-hidden="true" />
         <div className="hero-top">
           <div className="hero-identity">
-            <Avatar name={user.name} size={46} className="avatar-hero" />
+            <Avatar name={user.name} size={46} className="avatar-hero" photo={user.photo} />
             <div>
               <span className="hero-greeting">{dateLabel}</span>
               <h2>{user.name.replace(/^Prof\.\s*/, '')}</h2>
@@ -338,7 +344,7 @@ export default function Home() {
             <span>
               {session
                 ? `Submitted ${relativeTime(session.submittedAt)}`
-                : 'Morning register is waiting'}
+                : `${sessionTypeLabel(daySessionType)} register is waiting`}
             </span>
             <Link to="/attendance" className="text-link">
               {session ? 'Edit register' : 'Start roll-call'} <ChevronRight size={15} />
@@ -364,7 +370,7 @@ export default function Home() {
                   to={`/reports?student=${student.id}`}
                   className="at-risk-row"
                 >
-                  <Avatar name={student.name} size={34} />
+                  <Avatar name={student.name} size={34} photo={student.photo} />
                   <span>
                     <strong>{student.name}</strong>
                     <small>{student.className} · below 35% average</small>

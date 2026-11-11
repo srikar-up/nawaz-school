@@ -260,7 +260,7 @@ export default function Assignments() {
                     </td>
                     <td>
                       <span className="table-person muted-person">
-                        <Avatar name={creator?.name} size={28} />
+                        <Avatar name={creator?.name} size={28} photo={creator?.photo} />
                         <span>
                           <strong>{creator?.name || 'School office'}</strong>
                           <small>{creator?.staffType}</small>

@@ -45,6 +45,45 @@ export async function toWebp(file, { maxDimension = MAX_DIMENSION, quality = WEB
   }
 }
 
+/**
+ * Draws the framed square from the crop dialog to a 512px WebP file.
+ *
+ * The dialog shows a `viewSize` square; the export uses the same transform at
+ * 512px so the saved avatar matches the preview exactly.
+ */
+export async function cropImageToFile(
+  image,
+  { zoom = 1, rotation = 0, offset = { x: 0, y: 0 }, viewSize = 260, quality = WEBP_QUALITY } = {}
+) {
+  const width = image?.naturalWidth || image?.width || 0;
+  const height = image?.naturalHeight || image?.height || 0;
+  if (!width || !height) throw new Error('The photo is still loading. Try again.');
+
+  const size = MAX_DIMENSION;
+  const radians = (rotation * Math.PI) / 180;
+  const rotatedWidth = Math.abs(width * Math.cos(radians)) + Math.abs(height * Math.sin(radians));
+  const rotatedHeight = Math.abs(width * Math.sin(radians)) + Math.abs(height * Math.cos(radians));
+  const scale = Math.max(size / rotatedWidth, size / rotatedHeight) * zoom;
+  const offsetScale = size / viewSize;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Canvas is unavailable.');
+  context.imageSmoothingQuality = 'high';
+  context.translate(size / 2 + offset.x * offsetScale, size / 2 + offset.y * offsetScale);
+  context.rotate(radians);
+  context.scale(scale, scale);
+  context.drawImage(image, -width / 2, -height / 2);
+
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', quality));
+  if (!blob || blob.type !== 'image/webp') throw new Error('WebP encoding is unavailable.');
+
+  return new File([blob], 'avatar.webp', { type: 'image/webp', lastModified: Date.now() });
+}
+
 function loadBitmap(file) {
   if (typeof createImageBitmap === 'function') {
     return createImageBitmap(file);
@@ -68,12 +107,15 @@ function loadBitmap(file) {
 
 /**
  * Builds a sized, auto-format delivery URL from the stored photo metadata.
- * The public id is stable, so changing sizes never re-uploads anything.
+ *
+ * The crop dialog already produces a square framing chosen by the user, so
+ * delivery is a plain centre fill: no automatic face crop that could move the
+ * subject after the fact.
  */
 export function avatarUrl(photo, { size = 128 } = {}) {
   if (!photo?.url) return null;
   return photo.url.replace(
     '/upload/',
-    `/upload/f_auto,q_auto,w_${size},h_${size},c_fill,g_face/`
+    `/upload/f_auto,q_auto,w_${size},h_${size},c_fill/`
   );
 }

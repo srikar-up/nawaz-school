@@ -1,3 +1,5 @@
+import { attendanceModeOf, primarySessionType } from './attendance';
+
 export const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 export const WEEKDAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 export const SCHOOL_DAYS = [1, 2, 3, 4, 5];
@@ -138,13 +140,21 @@ export function attendanceStats(entries = []) {
   };
 }
 
-export function findSession(data, section, date, sessionType = 'Morning') {
+/**
+ * Find a register for a class, date and session.
+ *
+ * When `sessionType` is omitted the school's current attendance mode decides
+ * the default (Morning for two sessions, FullDay for a single register), so
+ * every "today's attendance" card follows the admin setting automatically.
+ */
+export function findSession(data, section, date, sessionType) {
+  const type = sessionType || primarySessionType(attendanceModeOf(data?.meta));
   return (
     data?.attendanceSessions?.find(
       (session) =>
         session.classIdSection === section &&
         session.date === date &&
-        session.sessionType === sessionType
+        session.sessionType === type
     ) || null
   );
 }

@@ -1,15 +1,19 @@
 import { useRef, useState } from 'react';
 import { Camera, Loader2, Trash2 } from 'lucide-react';
 import Avatar from './Avatar';
+import PhotoCropDialog from './PhotoCropDialog';
 import { api } from '../lib/api';
-import { avatarUrl } from '../lib/image';
+import { isAcceptedImage } from '../lib/image';
 import { uploadProfilePhoto } from '../lib/upload';
+
+const MAX_FILE_BYTES = 12 * 1024 * 1024;
 
 /**
  * Avatar with an optional upload control.
  *
- * The heavy lifting lives in lib/upload.js: compress to WebP, request a
- * signature for this exact record, upload, then persist the metadata.
+ * Choosing a file opens the crop dialog first: preview, zoom, rotate and drag
+ * before anything is uploaded. lib/upload.js then compresses to WebP, requests
+ * a signature for this exact record, uploads, and persists the metadata.
  */
 export default function PhotoPicker({
   kind,
@@ -24,6 +28,7 @@ export default function PhotoPicker({
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState('');
+  const [cropFile, setCropFile] = useState(null);
 
   const editable = !readOnly && Boolean(id);
 
@@ -32,20 +37,30 @@ export default function PhotoPicker({
     inputRef.current?.click();
   };
 
-  const handleFile = async (event) => {
+  const handleFile = (event) => {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
 
     setError('');
+    if (!isAcceptedImage(file)) {
+      setError('Choose a PNG, JPG or WebP image.');
+      return;
+    }
+    if (file.size > MAX_FILE_BYTES) {
+      setError('Choose an image smaller than 12 MB.');
+      return;
+    }
+    setCropFile(file);
+  };
+
+  const saveCropped = async (cropped) => {
     setBusy(true);
     setProgress(0);
-
     try {
-      await uploadProfilePhoto(file, { kind, id, onProgress: setProgress });
+      await uploadProfilePhoto(cropped, { kind, id, onProgress: setProgress });
       await onSaved?.();
-    } catch (uploadError) {
-      setError(uploadError.message || 'Could not upload that photo.');
+      setCropFile(null);
     } finally {
       setBusy(false);
       setProgress(0);
@@ -75,7 +90,7 @@ export default function PhotoPicker({
         aria-label={editable ? 'Change profile photo' : `${name} photo`}
         style={{ width: size, height: size }}
       >
-        <Avatar name={name} size={size} image={avatarUrl(photo, { size: size * 2 })} />
+        <Avatar name={name} size={size} photo={photo} />
         {editable && (
           <span className="photo-picker-badge" aria-hidden="true">
             {busy ? <Loader2 size={14} className="spin" /> : <Camera size={14} />}
@@ -108,10 +123,19 @@ export default function PhotoPicker({
         </span>
       )}
 
+      {cropFile ? (
+        <PhotoCropDialog
+          file={cropFile}
+          progress={progress}
+          onCancel={() => (busy ? null : setCropFile(null))}
+          onSave={saveCropped}
+        />
+      ) : null}
+
       <input
         ref={inputRef}
         type="file"
-        accept="image/png,image/jpeg"
+        accept="image/png,image/jpeg,image/webp"
         onChange={handleFile}
         hidden
       />

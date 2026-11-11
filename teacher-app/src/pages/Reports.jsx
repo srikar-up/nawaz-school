@@ -114,7 +114,7 @@ export default function Reports() {
             </div>
 
             <div className="report-student">
-              <Avatar name={selected.name} size={58} />
+              <Avatar name={selected.name} size={58} photo={selected.photo} />
               <div>
                 <h2>{selected.name}</h2>
                 <p>
@@ -345,7 +345,7 @@ export default function Reports() {
               className="directory-row"
               onClick={() => setSearchParams({ student: student.id })}
             >
-              <Avatar name={student.name} size={40} />
+              <Avatar name={student.name} size={40} photo={student.photo} />
               <span className="directory-name">
                 <strong>{student.name}</strong>
                 <small>

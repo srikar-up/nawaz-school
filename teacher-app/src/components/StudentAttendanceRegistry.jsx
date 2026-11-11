@@ -192,7 +192,7 @@ export default function StudentAttendanceRegistry({
               <tr key={student.id}>
                 <td className="registry-name-cell">
                   <div className="registry-student">
-                    <Avatar name={student.name} size={30} />
+                    <Avatar name={student.name} size={30} photo={student.photo} />
                     <span>
                       <strong>{student.name}</strong>
                       <small>
@@ -212,6 +212,8 @@ export default function StudentAttendanceRegistry({
                     >
                       <span
                         className="registry-square"
+                        role="img"
+                        aria-label={`${formatDateLong(day.iso, { year: 'numeric' })}: ${meta?.label || 'No register'}`}
                         title={`${formatDateLong(day.iso, { year: 'numeric' })} · ${meta?.label || 'No register'}`}
                       />
                     </td>

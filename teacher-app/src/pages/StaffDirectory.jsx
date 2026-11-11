@@ -165,7 +165,7 @@ export default function StaffDirectory() {
           return (
             <article key={member.id} className={`staff-card ${isMe ? 'staff-card-me' : ''}`}>
               <div className="staff-card-head">
-                <Avatar name={member.name} size={44} />
+                <Avatar name={member.name} size={44} photo={member.photo} />
                 <div>
                   <h3>
                     {member.name}

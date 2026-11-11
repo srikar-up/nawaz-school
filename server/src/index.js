@@ -22,6 +22,14 @@ import {
   validateImportedData,
 } from './import-validation.js';
 import {
+  attendanceModeOf,
+  isSessionTypeAllowed,
+  parseAttendanceMode,
+  primarySessionType,
+  sessionTypeLabel,
+  sessionTypesFor,
+} from './attendance-mode.js';
+import {
   dayName,
   getTimetableConfig,
   isDateString,
@@ -642,6 +650,16 @@ app.post('/api/attendance', requireActor, (req, res) => {
   }
   if (!ATTENDANCE_TYPES.has(sessionType)) {
     return res.status(400).json({ error: 'Select a valid session.' });
+  }
+
+  const mode = attendanceModeOf(db.meta);
+  if (!isSessionTypeAllowed(mode, sessionType)) {
+    return res.status(400).json({
+      error:
+        mode === 'fullDay'
+          ? 'This school records one attendance register per day. Submit the full-day register instead.'
+          : 'This school records morning and afternoon registers. Choose Morning or Afternoon.',
+    });
   }
   if (!Array.isArray(body.entries) || body.entries.length === 0) {
     return res.status(400).json({ error: 'Attendance must include at least one student.' });
@@ -1480,11 +1498,32 @@ app.patch('/api/meta', requireActor, requireSuperAdmin, (req, res) => {
   if (body.schoolName !== undefined && !str(body.schoolName)) {
     return res.status(400).json({ error: 'School name cannot be empty.' });
   }
+  if (body.attendanceMode !== undefined && !parseAttendanceMode(body.attendanceMode)) {
+    return res.status(400).json({
+      error: 'Attendance mode must be "twoSessions" (morning + afternoon) or "fullDay".',
+    });
+  }
   mutate((current) => {
     allowed.forEach((field) => {
       if (body[field] !== undefined) current.meta[field] = str(body[field]);
     });
-    addActivity(current, req.actor, 'Updated school settings', 'Settings', 'school', 'School profile updated');
+    if (body.attendanceMode !== undefined) {
+      current.meta.attendanceMode = parseAttendanceMode(body.attendanceMode);
+    }
+    const modeNote =
+      body.attendanceMode !== undefined
+        ? ` · attendance: ${
+            current.meta.attendanceMode === 'fullDay' ? 'full day' : 'morning + afternoon'
+          }`
+        : '';
+    addActivity(
+      current,
+      req.actor,
+      'Updated school settings',
+      'Settings',
+      'school',
+      `School profile updated${modeNote}`
+    );
   });
   return res.json({ meta: getDb().meta });
 });
@@ -1546,6 +1585,8 @@ app.post('/api/import', requireActor, requireSuperAdmin, (req, res) => {
     todayName: current.meta.todayName,
     createdAt: merged.meta?.createdAt || current.meta.createdAt,
     updatedAt: current.meta.updatedAt,
+    // A backup may predate the setting, or carry an unsupported value.
+    attendanceMode: parseAttendanceMode(merged.meta?.attendanceMode) || current.meta.attendanceMode,
   };
 
   // Recalculate derived fields across the whole merged state so partial

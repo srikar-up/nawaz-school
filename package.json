@@ -23,7 +23,16 @@
     "deploy:teacher": "npm --workspace teacher-app run deploy",
     "deploy:admin": "npm --workspace admin-panel run deploy",
     "test:api": "node server/smoke-test.mjs",
-    "test:ui": "node server/ui-test.mjs"
+    "test:ui": "node server/ui-test.mjs",
+    "test:db": "npm --workspace server run test:db",
+    "test:auth": "npm --workspace server run test:auth",
+    "test:attendance": "node --test server/test/attendance-mode.test.mjs",
+    "test:attendance:api": "node server/test/attendance-mode.e2e.mjs",
+    "test:attendance:ui": "node server/test/attendance-ui.e2e.mjs",
+    "test:attendance:flow": "node server/test/attendance-flow.e2e.mjs",
+    "test:polish": "node server/test/polish-ui.e2e.mjs",
+    "test:photo": "node server/test/photo-crop.e2e.mjs",
+    "test:production": "node server/test/production.e2e.mjs"
   },
   "devDependencies": {
     "cf": "^0.15.0",

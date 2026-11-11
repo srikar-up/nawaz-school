@@ -147,7 +147,7 @@ export default function ClassDetail() {
               key={student.id}
               onClick={() => setSelected(student.id)}
             >
-              <Avatar name={student.name} size={40} />
+              <Avatar name={student.name} size={40} photo={student.photo} />
               <span className="directory-name">
                 <strong>{student.name}</strong>
                 <small>

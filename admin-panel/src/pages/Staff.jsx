@@ -313,7 +313,7 @@ export default function Staff() {
                         className="table-person"
                         onClick={() => setSearchParams({ staff: member.id })}
                       >
-                        <Avatar name={member.name} size={34} />
+                        <Avatar name={member.name} size={34} photo={member.photo} />
                         <span>
                           <strong>{member.name}</strong>
                           <small>{member.email}</small>
@@ -572,7 +572,7 @@ export default function Staff() {
       >
         {deleteTarget ? (
           <div className="delete-summary">
-            <Avatar name={deleteTarget.name} size={46} />
+            <Avatar name={deleteTarget.name} size={46} photo={deleteTarget.photo} />
             <div>
               <strong>{deleteTarget.name}</strong>
               <span>{deleteTarget.staffType} · {deleteTarget.email}</span>

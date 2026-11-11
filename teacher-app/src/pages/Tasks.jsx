@@ -75,7 +75,7 @@ function ExamCard({ exam, data, user }) {
       </div>
 
       <div className="exam-assignee">
-        <Avatar name={assignedTeacher?.name || 'Unassigned'} size={27} />
+        <Avatar name={assignedTeacher?.name || 'Unassigned'} size={27} photo={assignedTeacher?.photo} />
         <span>
           Assigned to{' '}
           <strong>{isMine ? 'you' : assignedTeacher?.name || 'Unassigned'}</strong>

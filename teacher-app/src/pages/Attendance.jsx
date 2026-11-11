@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
@@ -37,6 +37,12 @@ import {
   studentAttendance,
   todayISO,
 } from '../lib/format';
+import {
+  attendanceModeOf,
+  primarySessionType,
+  sessionTypeLabel,
+  sessionTypesFor,
+} from '../lib/attendance';
 
 const STATUS_OPTIONS = ['present', 'absent', 'late', 'excused'];
 
@@ -87,7 +93,9 @@ export default function Attendance() {
     classes.some((cls) => cls.id === queryClass) ? queryClass : classes[0]?.id || ''
   );
   const [date, setDate] = useState(initialDate);
-  const [sessionType, setSessionType] = useState('Morning');
+  const [sessionType, setSessionType] = useState(() =>
+    primarySessionType(attendanceModeOf(data.meta))
+  );
   const [entries, setEntries] = useState({});
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
@@ -96,6 +104,8 @@ export default function Attendance() {
   const [saving, setSaving] = useState(false);
 
   const activeClass = classes.find((cls) => cls.id === section) || classes[0];
+  const mode = attendanceModeOf(data.meta);
+  const sessionTypes = useMemo(() => sessionTypesFor(mode), [mode]);
   const roster = useMemo(
     () =>
       data.students
@@ -114,8 +124,27 @@ export default function Attendance() {
     }
   }, [classes, section]);
 
+  // The admin can switch the school between two sessions and one full-day
+  // register; keep the selected tab valid without a reload.
   useEffect(() => {
-    setEntries(entriesFromSession(roster, savedSession));
+    if (!sessionTypes.includes(sessionType)) {
+      if (dirtyRef.current) {
+        notify('The school changed the attendance mode. Your unsaved changes were cleared.', 'info');
+      }
+      setSessionType(sessionTypes[0]);
+    }
+  }, [sessionTypes, sessionType, notify]);
+
+  useEffect(() => {
+    const next = entriesFromSession(roster, savedSession);
+    baselineRef.current = JSON.stringify(
+      roster.map((student) => ({
+        studentId: student.id,
+        status: next[student.id]?.status || 'present',
+        remarks: next[student.id]?.remarks || '',
+      }))
+    );
+    setEntries(next);
     setFilter('all');
     setSearch('');
   }, [section, date, sessionType, savedSession?.id, savedSession?.submittedAt, roster.length]);
@@ -125,23 +154,37 @@ export default function Attendance() {
     ...entries[student.id],
   }));
   const stats = attendanceStats(computedEntries);
-  const dirty = useMemo(() => {
-    const current = roster.map((student) => ({
-      studentId: student.id,
-      status: entries[student.id]?.status || 'present',
-      remarks: entries[student.id]?.remarks || '',
-    }));
-    if (!savedSession) return true;
-    const saved = roster.map((student) => {
-      const entry = savedSession.entries.find((item) => item.studentId === student.id);
-      return {
+  const baselineRef = useRef('');
+  const signature = (source = entries) =>
+    JSON.stringify(
+      roster.map((student) => ({
         studentId: student.id,
-        status: entry?.status || 'present',
-        remarks: entry?.remarks || '',
-      };
-    });
-    return JSON.stringify(current) !== JSON.stringify(saved);
-  }, [entries, roster, savedSession]);
+        status: source[student.id]?.status || 'present',
+        remarks: source[student.id]?.remarks || '',
+      }))
+    );
+  const dirty = signature() !== baselineRef.current;
+  const dirtyRef = useRef(false);
+  dirtyRef.current = dirty;
+
+  useEffect(() => {
+    const handler = (event) => {
+      if (!dirtyRef.current) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, []);
+
+  const confirmDiscard = () => {
+    if (!dirtyRef.current) return true;
+    return window.confirm(
+      'You have unsaved attendance changes. Leave this register and discard them?'
+    );
+  };
+
+  const canSubmit = Boolean(savedSession) === false || dirty;
 
   const visibleStudents = roster.filter((student) => {
     const entry = entries[student.id];
@@ -209,6 +252,7 @@ export default function Attendance() {
         entries: computedEntries,
       });
       await refresh({ silent: true });
+      baselineRef.current = signature();
       notify(
         `Attendance saved for ${activeClass.displayName} · ${stats.present} present, ${stats.absent} absent.`,
         'success'
@@ -258,7 +302,9 @@ export default function Attendance() {
             role="tab"
             aria-selected={cls.id === activeClass?.id}
             className={`class-pill ${cls.id === activeClass?.id ? 'active' : ''}`}
-            onClick={() => setSection(cls.id)}
+            onClick={() => {
+              if (cls.id !== activeClass?.id && confirmDiscard()) setSection(cls.id);
+            }}
           >
             {cls.displayName}
           </button>
@@ -285,22 +331,40 @@ export default function Attendance() {
             type="date"
             value={date}
             max={todayISO()}
-            onChange={(event) => setDate(event.target.value)}
+            onChange={(event) => {
+              const next = event.target.value;
+              if (!next || next === date) return;
+              if (confirmDiscard()) setDate(next);
+            }}
           />
         </label>
-        <div className="segmented segmented-3" role="group" aria-label="Session">
-          {['Morning', 'Afternoon', 'FullDay'].map((type) => (
+        <div
+          className={`segmented ${sessionTypes.length > 1 ? 'segmented-2' : ''}`}
+          role="group"
+          aria-label="Session"
+        >
+          {sessionTypes.map((type) => (
             <button
               key={type}
               type="button"
               className={sessionType === type ? 'active' : ''}
-              onClick={() => setSessionType(type)}
+              aria-pressed={sessionType === type}
+              onClick={() => {
+                if (type !== sessionType && confirmDiscard()) setSessionType(type);
+              }}
             >
-              {type === 'FullDay' ? 'Full day' : type}
+              {sessionTypeLabel(type)}
             </button>
           ))}
         </div>
       </section>
+
+      {mode === 'fullDay' ? (
+        <p className="attendance-mode-note">
+          This school records one register for the whole day. Morning and afternoon
+          are not tracked separately.
+        </p>
+      ) : null}
 
       {savedSession ? (
         <div className="saved-banner">
@@ -347,7 +411,13 @@ export default function Attendance() {
           <span>
             <Users size={14} /> {roster.length} students · {classLabel(data, activeClass?.id)}
           </span>
-          {dirty ? <Badge tone="warning">Unsaved changes</Badge> : <Badge tone="success">Saved</Badge>}
+          {dirty ? (
+            <Badge tone="warning">Unsaved changes</Badge>
+          ) : savedSession ? (
+            <Badge tone="success">Saved</Badge>
+          ) : (
+            <Badge tone="brand">Not submitted yet</Badge>
+          )}
         </div>
       </section>
 
@@ -397,7 +467,7 @@ export default function Attendance() {
               className={`student-row ${entry.status !== 'present' ? `student-row-${entry.status}` : ''}`}
             >
               <div className="student-row-top">
-                <Avatar name={student.name} size={38} />
+                <Avatar name={student.name} size={38} photo={student.photo} />
                 <div className="student-row-name">
                   <strong>{student.name}</strong>
                   <span>
@@ -466,10 +536,10 @@ export default function Attendance() {
           type="button"
           className="btn btn-primary"
           onClick={save}
-          disabled={saving || !dirty}
+          disabled={saving || !canSubmit}
         >
           {saving ? <span className="btn-spinner" /> : <Send size={17} />}
-          {saving ? 'Saving…' : dirty ? 'Submit attendance' : 'Submitted'}
+          {saving ? 'Saving…' : canSubmit ? 'Submit attendance' : 'Submitted'}
         </button>
       </div>
 
