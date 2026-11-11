@@ -77,7 +77,7 @@ All apps also expose one-click demo buttons on their sign-in screens.
 - **Home** — greeting, live date, next class, attendance hero, quick actions, today's schedule, urgent notice, attendance summary, risk students, work counters, recent notices.
 - **Attendance** — class selector for incharge sections, date/session, default present, Present/Absent/Late/Excused control, reason presets + custom note, live summary, edit after submission, save to shared API, plus a GitHub-style **monthly student register**: one row per student, every day across the row, status-coloured squares and a rate column. The session picker follows the school attendance mode set by the admin: either **Morning / Afternoon** or a single **Full day** register.
 - **Classes** — assigned sections, class rosters, attendance and scores, student detail sheet, guardian phone action.
-- **Tasks** — school-wide exam list with the assigned teacher named on every card; only the assigned teacher can enter marks, while colleagues' submitted results open read-only. Includes automatic open/submitted states, marks validation, live average, confirmation and exam lock; assignment list and create/review/delete flow.
+- **Tasks** — school-wide exam list with the assigned teacher named on every card; only the assigned teacher can enter marks, while colleagues' submitted results open read-only. Includes automatic open/submitted states, marks validation, live average, confirmation and exam lock. The assignment flow only offers classes and subjects assigned to the signed-in teacher; a teacher cannot create or move work to a colleague's subject. An admin can set work for any subject.
 - **Timetable** — follows the admin-configured Monday–Friday or Monday–Saturday week, including Saturday periods created in the admin builder, with live/next period highlighting and whole-school view.
 - **Syllabus** — assigned subjects, chapter progress ring, tap-to-cycle chapter status saved to API.
 - **Reports** — printable student progress slip, attendance + assessments, teacher remark, parent-ready WhatsApp message.
@@ -120,7 +120,7 @@ All apps also expose one-click demo buttons on their sign-in screens.
 - Server-Sent Events endpoint for live sync.
 - Timetable endpoints for cell upsert/delete and week settings, with teacher/class overlap checks, Monday–Saturday configuration, Sunday editing window and publish lock.
 - Atomic CSV import endpoint (`POST /api/import`) with SuperAdmin guard, schema version check, duplicate-ID/foreign-key/nested-entry validation, derived-field recalculation and merge/replace modes.
-- Server-side authorization checks for admin, SuperAdmin and class attendance incharge.
+- Server-side authorization checks for admin, SuperAdmin and class attendance incharge. Assignment writes require the teacher to own the class and the exact subject; admins are exempt.
 - Attendance-mode enforcement: the server accepts only the session types that match `meta.attendanceMode` (morning + afternoon, or one full-day register) and rejects the rest without writing.
 - Static hosting of both built PWAs and a launcher page with live API status.
 - Demo reset endpoint.
@@ -455,6 +455,8 @@ npm run test:polish          # unsaved guard, help dialog, full-day topbar (dev 
 npm run test:curriculum      # curriculum rules and AI/JSON pasting
 npm run test:curriculum:api  # curriculum API on an isolated instance
 npm run test:curriculum:ui   # curriculum admin page on an isolated instance
+npm run test:assignments:api # assignment permissions on an isolated instance
+npm run test:assignments:ui  # teacher assignment form options (dev servers)
 ```
 
 For the visual prototype and design rationale, see `target.md` (the UI/UX design
@@ -620,6 +622,8 @@ npm run test:curriculum                     # curriculum rules + AI/JSON parsing
 npm run test:curriculum:api                 # curriculum API, isolated :4100
 npm run test:curriculum:ui                  # admin curriculum page, isolated API + Vite
 npm run test:data-exchange                  # CSV bundle includes the curricula dataset
+npm run test:assignments:api                # teacher/admin assignment permissions, isolated
+npm run test:assignments:ui                 # teacher form only offers own classes/subjects
 node server/test/profile-photo.e2e.mjs      # needs dev servers running
 node server/test/profile-ui.e2e.mjs
 node server/test/live-sync.e2e.mjs

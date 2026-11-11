@@ -132,6 +132,27 @@ function teacherClassIds(db, staffId) {
   return [...ids];
 }
 
+/** True when the subject is offered in that class by any teacher. */
+function classHasSubject(db, classIdSection, subjectName) {
+  const name = normalizeName(subjectName);
+  return db.subjects.some(
+    (subject) =>
+      subject.classIdSection === classIdSection &&
+      normalizeName(subject.subjectName) === name
+  );
+}
+
+/** True when this teacher is the assigned teacher for that class + subject. */
+function teacherTeachesSubject(db, staffId, classIdSection, subjectName) {
+  const name = normalizeName(subjectName);
+  return db.subjects.some(
+    (subject) =>
+      subject.classIdSection === classIdSection &&
+      subject.assignedStaffId === staffId &&
+      normalizeName(subject.subjectName) === name
+  );
+}
+
 function classifyRms(text) {
   const lower = String(text || '').toLowerCase();
   if (/(confidential|private|personal|harassment|complaint)/.test(lower)) return 'confidential';
@@ -1524,11 +1545,18 @@ app.post('/api/assignments', requireActor, (req, res) => {
   const db = getDb();
   const body = req.body || {};
   const classIdSection = str(body.classIdSection);
+  const subject = str(body.subject);
   const title = str(body.title);
   const dueDate = str(body.dueDate);
   if (!title) return res.status(400).json({ error: 'Assignment title is required.' });
   if (!db.classes.some((cls) => cls.id === classIdSection)) {
     return res.status(400).json({ error: 'Select a valid class.' });
+  }
+  if (!subject) {
+    return res.status(400).json({ error: 'Select the subject this assignment belongs to.' });
+  }
+  if (!classHasSubject(db, classIdSection, subject)) {
+    return res.status(400).json({ error: `${subject} is not taught in ${classIdSection}.` });
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) {
     return res.status(400).json({ error: 'Select a valid due date.' });
@@ -1536,13 +1564,18 @@ app.post('/api/assignments', requireActor, (req, res) => {
   if (!isAdmin(req.actor) && !teacherClassIds(db, req.actor.id).includes(classIdSection)) {
     return res.status(403).json({ error: 'You can only create assignments for your own classes.' });
   }
+  if (!isAdmin(req.actor) && !teacherTeachesSubject(db, req.actor.id, classIdSection, subject)) {
+    return res.status(403).json({
+      error: `You can only create assignments for the subjects assigned to you. ${subject} in ${classIdSection} belongs to another teacher.`,
+    });
+  }
 
   const assignment = {
     id: `ASG-${Date.now().toString().slice(-6)}`,
     title,
     description: str(body.description),
     classIdSection,
-    subject: str(body.subject) || 'General',
+    subject,
     dueDate,
     status: str(body.status) || 'Assigned',
     createdByStaffId: req.actor.id,
@@ -1570,6 +1603,25 @@ app.patch('/api/assignments/:id', requireActor, (req, res) => {
     return res.status(403).json({ error: 'Only the creator can update this assignment.' });
   }
   const body = req.body || {};
+  if (body.subject !== undefined) {
+    const nextSubject = str(body.subject);
+    if (!nextSubject) {
+      return res.status(400).json({ error: 'Select the subject this assignment belongs to.' });
+    }
+    if (!classHasSubject(db, assignment.classIdSection, nextSubject)) {
+      return res.status(400).json({
+        error: `${nextSubject} is not taught in ${assignment.classIdSection}.`,
+      });
+    }
+    if (
+      !isAdmin(req.actor) &&
+      !teacherTeachesSubject(db, req.actor.id, assignment.classIdSection, nextSubject)
+    ) {
+      return res.status(403).json({
+        error: 'You can only move this assignment to a subject assigned to you.',
+      });
+    }
+  }
   const allowed = ['title', 'description', 'dueDate', 'status', 'subject'];
   mutate((current) => {
     const target = current.assignments.find((entry) => entry.id === assignment.id);

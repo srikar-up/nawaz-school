@@ -179,6 +179,11 @@ export default function Tasks() {
 
   const classes = getTeacherClasses(data, user.id);
   const teacherClassIds = new Set(classes.map((cls) => cls.id));
+  const mySubjects = data.subjects.filter((subject) => subject.assignedStaffId === user.id);
+  const teachableClasses = classes.filter((cls) =>
+    mySubjects.some((subject) => subject.classIdSection === cls.id)
+  );
+  const canCompose = teachableClasses.length > 0;
   const myExams = data.exams.filter((exam) => exam.assignedStaffId === user.id);
   const exams = (examScope === 'mine' ? myExams : data.exams)
     .slice()
@@ -199,8 +204,8 @@ export default function Tasks() {
       return new Date(a.dueDate) - new Date(b.dueDate);
     });
   const openExams = myExams.filter((exam) => examEffectiveStatus(exam) === 'Open');
-  const subjectsForClass = data.subjects.filter(
-    (subject) => subject.classIdSection === form.classIdSection
+  const subjectsForClass = mySubjects.filter(
+    (subject) => subject.classIdSection === (form.classIdSection || teachableClasses[0]?.id)
   );
 
   useEffect(() => {
@@ -209,10 +214,13 @@ export default function Tasks() {
   }, [searchParams]);
 
   const openCompose = () => {
+    const firstClass = teachableClasses[0]?.id || '';
+    const firstSubject =
+      mySubjects.find((subject) => subject.classIdSection === firstClass)?.subjectName || '';
     setForm({
       title: '',
-      classIdSection: classes[0]?.id || '',
-      subject: '',
+      classIdSection: firstClass,
+      subject: firstSubject,
       dueDate: addDaysISO(todayISO(), 7),
       description: '',
     });
@@ -221,11 +229,21 @@ export default function Tasks() {
 
   const createAssignment = async (event) => {
     event.preventDefault();
+    const classIdSection = form.classIdSection || teachableClasses[0]?.id;
+    if (!classIdSection) {
+      notify('You are not assigned to teach a subject yet. Ask the school office.', 'error');
+      return;
+    }
+    if (!form.subject) {
+      notify('Choose one of your assigned subjects.', 'error');
+      return;
+    }
+
     setBusy(true);
     try {
       await api.createAssignment(user.id, {
         ...form,
-        classIdSection: form.classIdSection || classes[0]?.id,
+        classIdSection,
       });
       await refresh({ silent: true });
       setComposeOpen(false);
@@ -272,7 +290,14 @@ export default function Tasks() {
         title="Tasks"
         subtitle="Enter marks, set assignments and keep track of what is due."
         action={
-          <button type="button" className="icon-btn" onClick={openCompose} aria-label="New assignment">
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={openCompose}
+            aria-label="New assignment"
+            disabled={!canCompose}
+            title={canCompose ? 'New assignment' : 'No subject assigned to you yet'}
+          >
             <Plus size={20} />
           </button>
         }
@@ -377,10 +402,21 @@ export default function Tasks() {
               {assignments.filter((assignment) => assignment.status !== 'Reviewed').length} open ·{' '}
               {assignments.filter((assignment) => assignment.status === 'Reviewed').length} reviewed
             </span>
-            <button type="button" className="btn btn-primary btn-sm" onClick={openCompose}>
-              <Plus size={15} /> New assignment
-            </button>
+            {canCompose ? (
+              <button type="button" className="btn btn-primary btn-sm" onClick={openCompose}>
+                <Plus size={15} /> New assignment
+              </button>
+            ) : null}
           </div>
+          {!canCompose ? (
+            <div className="info-strip neutral">
+              <LockKeyhole size={17} />
+              <span>
+                <strong>No subject is assigned to you yet.</strong> Ask the school office to assign
+                your subject before creating classwork.
+              </span>
+            </div>
+          ) : null}
           <div className="assignment-list">
             {assignments.map((assignment) => (
               <AssignmentCard
@@ -397,11 +433,17 @@ export default function Tasks() {
               <EmptyState
                 icon={FilePlus2}
                 title="No assignments yet"
-                message="Create your first class assignment to share instructions and a due date."
+                message={
+                  canCompose
+                    ? 'Create your first class assignment to share instructions and a due date.'
+                    : 'When your subject is assigned, you can create classwork here.'
+                }
                 action={
-                  <button type="button" className="btn btn-primary btn-sm" onClick={openCompose}>
-                    <Plus size={15} /> Create assignment
-                  </button>
+                  canCompose ? (
+                    <button type="button" className="btn btn-primary btn-sm" onClick={openCompose}>
+                      <Plus size={15} /> Create assignment
+                    </button>
+                  ) : null
                 }
               />
             ) : null}
@@ -410,9 +452,9 @@ export default function Tasks() {
       )}
 
       <Sheet
-        open={composeOpen}
+        open={composeOpen && canCompose}
         title="New assignment"
-        subtitle="Give your class clear instructions and a due date."
+        subtitle="Only the subjects assigned to you can be chosen."
         onClose={() => {
           setComposeOpen(false);
           setSearchParams(tab === 'assignments' ? { tab: 'assignments' } : {}, {
@@ -446,17 +488,21 @@ export default function Tasks() {
             <label className="field">
               <span>Class</span>
               <select
-                value={form.classIdSection || classes[0]?.id || ''}
-                onChange={(event) =>
+                value={form.classIdSection || teachableClasses[0]?.id || ''}
+                onChange={(event) => {
+                  const classIdSection = event.target.value;
+                  const firstSubject = mySubjects.find(
+                    (subject) => subject.classIdSection === classIdSection
+                  );
                   setForm((current) => ({
                     ...current,
-                    classIdSection: event.target.value,
-                    subject: '',
-                  }))
-                }
+                    classIdSection,
+                    subject: firstSubject?.subjectName || '',
+                  }));
+                }}
                 required
               >
-                {classes.map((cls) => (
+                {teachableClasses.map((cls) => (
                   <option key={cls.id} value={cls.id}>
                     {cls.displayName}
                   </option>
@@ -472,7 +518,7 @@ export default function Tasks() {
                 }
                 required
               >
-                <option value="">Select subject</option>
+                <option value="">Select your subject</option>
                 {subjectsForClass.map((subject) => (
                   <option key={subject.id} value={subject.subjectName}>
                     {subject.subjectName}
