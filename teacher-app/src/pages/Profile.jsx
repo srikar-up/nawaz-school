@@ -181,7 +181,7 @@ export default function Profile() {
             </span>
             <span>
               <strong>Attendance reminder</strong>
-              <small>Remember the morning register</small>
+              <small>Remember the daily register</small>
             </span>
             <input
               type="checkbox"

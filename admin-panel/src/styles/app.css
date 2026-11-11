@@ -5880,10 +5880,15 @@
 
   .topbar-context-pill,
   .sync-chip,
+  .topbar-help span,
   .topbar-user-text,
   .topbar-user > svg,
   .topbar-role-flag {
     display: none;
+  }
+
+  .topbar-help {
+    padding: 7px;
   }
 
   .topbar-actions {
