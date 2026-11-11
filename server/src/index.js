@@ -660,6 +660,50 @@ app.patch('/api/students/:id', requireActor, requireAdmin, (req, res) => {
   return res.json({ student: getDb().students.find((entry) => entry.id === student.id) });
 });
 
+/**
+ * Teacher-authored progress remark.
+ *
+ * Remarks are stored per teacher on the student record so two teachers who
+ * share a class do not overwrite each other's wording. An empty text removes
+ * that teacher's remark and falls back to the generated suggestion in the UI.
+ */
+app.patch('/api/students/:id/remark', requireActor, (req, res) => {
+  const db = getDb();
+  const student = db.students.find((entry) => entry.id === req.params.id);
+  if (!student) return res.status(404).json({ error: 'Student not found.' });
+
+  if (!isAdmin(req.actor) && !teacherClassIds(db, req.actor.id).includes(student.classIdSection)) {
+    return res.status(403).json({ error: 'You can only write remarks for students in your classes.' });
+  }
+
+  const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
+  if (text.length > 600) {
+    return res.status(400).json({ error: 'Keep the remark under 600 characters.' });
+  }
+
+  let saved = null;
+  mutate((current) => {
+    const target = current.students.find((entry) => entry.id === student.id);
+    const remarks = { ...(target.reportRemarks || {}) };
+    if (!text) {
+      delete remarks[req.actor.id];
+    } else {
+      saved = {
+        text,
+        updatedAt: isoNow(),
+        updatedBy: req.actor.id,
+        updatedByName: req.actor.name,
+      };
+      remarks[req.actor.id] = saved;
+    }
+    if (Object.keys(remarks).length) target.reportRemarks = remarks;
+    else delete target.reportRemarks;
+    trackRecord('students', target.id);
+  });
+
+  return res.json({ remark: saved });
+});
+
 app.delete('/api/students/:id', requireActor, requireAdmin, (req, res) => {
   const db = getDb();
   const student = db.students.find((entry) => entry.id === req.params.id);

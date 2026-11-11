@@ -32,6 +32,8 @@
                     "test:delta":  "node test/delta-sync.e2e.mjs",
                     "test:state-patch":  "node --test test/state-patch.test.mjs",
                     "test:import-validation":  "node --test test/import-validation.test.mjs",
+                    "test:remark":  "node test/report-remark.e2e.mjs",
+                    "test:remark:ui":  "node test/report-remark-ui.e2e.mjs",
                     "create:users":  "node --env-file-if-exists=.env scripts/create-auth-users.mjs",
                     "test:google":  "node --env-file-if-exists=.env test/google-mapping.e2e.mjs",
                     "deploy":  "wrangler deploy --config wrangler.jsonc"

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -7,15 +7,20 @@ import {
   CheckCircle2,
   ChevronRight,
   MessageCircle,
+  Pencil,
   Phone,
   Printer,
+  RotateCcw,
+  Save,
   Search,
   Send,
   TriangleAlert,
   UserRound,
   Users,
+  X,
 } from 'lucide-react';
 import { useAppData } from '../context/AppDataContext';
+import { api } from '../lib/api';
 import Avatar from '../components/Avatar';
 import Badge from '../components/Badge';
 import EmptyState from '../components/EmptyState';
@@ -38,11 +43,14 @@ function whatsappNumber(phone) {
 }
 
 export default function Reports() {
-  const { data, user } = useAppData();
+  const { data, user, notify, refresh } = useAppData();
   const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState('');
   const [classFilter, setClassFilter] = useState('all');
   const [sendOpen, setSendOpen] = useState(false);
+  const [editingRemark, setEditingRemark] = useState(false);
+  const [remarkDraft, setRemarkDraft] = useState('');
+  const [savingRemark, setSavingRemark] = useState(false);
   const classes = getTeacherClasses(data, user.id);
   const classIds = new Set(classes.map((cls) => cls.id));
   const roster = data.students
@@ -53,6 +61,12 @@ export default function Reports() {
     );
   const selectedId = searchParams.get('student');
   const selected = selectedId ? data.students.find((student) => student.id === selectedId) : null;
+  const savedRemark = selected?.reportRemarks?.[user.id]?.text || '';
+
+  useEffect(() => {
+    setEditingRemark(false);
+    setRemarkDraft(savedRemark);
+  }, [selected?.id, user.id, savedRemark]);
 
   if (selected && classIds.has(selected.classIdSection)) {
     const attendance = studentAttendance(data, selected.id);
@@ -68,9 +82,25 @@ export default function Reports() {
       .filter((entry) => entry.average !== null)
       .sort((a, b) => b.average - a.average);
     const rank = ranked.findIndex((entry) => entry.id === selected.id) + 1;
-    const remark = atRisk
+    const suggestedRemark = atRisk
       ? `${selected.name.split(' ')[0]} is currently below the school risk threshold. Please arrange a short check-in with the student and guardian, and review the recent assessments together.`
       : `${selected.name.split(' ')[0]} is making steady progress. Attendance and assessment results are within the expected range. Encourage continued consistency in classwork and revision.`;
+    const remark = savedRemark || suggestedRemark;
+
+    const saveRemark = async (text) => {
+      setSavingRemark(true);
+      try {
+        await api.saveReportRemark(user.id, selected.id, text);
+        await refresh({ silent: true });
+        setEditingRemark(false);
+        notify(text ? 'Teacher remark saved.' : 'Using the suggested remark.');
+      } catch (error) {
+        notify(error.message, 'error');
+      } finally {
+        setSavingRemark(false);
+      }
+    };
+
     const message = [
       `Nawaz School System — Progress Update`,
       `Student: ${selected.name} (Roll ${selected.rollNumber})`,
@@ -214,9 +244,75 @@ export default function Reports() {
             </div>
 
             <div className="report-section teacher-remark">
-              <h3>Teacher remark</h3>
-              <p>{remark}</p>
-              <span className="remark-sign">— {user.name}</span>
+              <div className="remark-head">
+                <h3>Teacher remark</h3>
+                {!editingRemark ? (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm remark-edit"
+                    onClick={() => {
+                      setRemarkDraft(remark);
+                      setEditingRemark(true);
+                    }}
+                  >
+                    <Pencil size={14} /> Edit remark
+                  </button>
+                ) : null}
+              </div>
+
+              {editingRemark ? (
+                <div className="remark-editor">
+                  <textarea
+                    value={remarkDraft}
+                    onChange={(event) => setRemarkDraft(event.target.value)}
+                    rows={4}
+                    maxLength={600}
+                    placeholder="Write a short, specific remark for the guardian."
+                    aria-label="Teacher remark"
+                    autoFocus
+                  />
+                  <div className="remark-editor-actions">
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      onClick={() => saveRemark(remarkDraft)}
+                      disabled={savingRemark || !remarkDraft.trim()}
+                    >
+                      <Save size={14} /> {savingRemark ? 'Saving…' : 'Save remark'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => {
+                        setEditingRemark(false);
+                        setRemarkDraft(savedRemark);
+                      }}
+                      disabled={savingRemark}
+                    >
+                      <X size={14} /> Cancel
+                    </button>
+                    {savedRemark ? (
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => saveRemark('')}
+                        disabled={savingRemark}
+                      >
+                        <RotateCcw size={14} /> Use suggested
+                      </button>
+                    ) : null}
+                    <span className="remark-count">{remarkDraft.length}/600</span>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <p>{remark}</p>
+                  <span className="remark-sign">
+                    — {user.name}
+                    {savedRemark ? ' · your saved remark' : ' · suggested'}
+                  </span>
+                </>
+              )}
             </div>
 
             <div className="report-foot">

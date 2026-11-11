@@ -80,7 +80,7 @@ All apps also expose one-click demo buttons on their sign-in screens.
 - **Tasks** — school-wide exam list with the assigned teacher named on every card; only the assigned teacher can enter marks, while colleagues' submitted results open read-only. Includes automatic open/submitted states, marks validation, live average, confirmation and exam lock. The assignment flow only offers classes and subjects assigned to the signed-in teacher; a teacher cannot create or move work to a colleague's subject. An admin can set work for any subject.
 - **Timetable** — follows the admin-configured Monday–Friday or Monday–Saturday week, including Saturday periods created in the admin builder, with live/next period highlighting and whole-school view.
 - **Syllabus** — assigned subjects, chapter progress ring, tap-to-cycle chapter status saved to API.
-- **Reports** — printable student progress slip, attendance + assessments, teacher remark, parent-ready WhatsApp message.
+- **Reports** — printable student progress slip, attendance + assessments, editable teacher remark (saved per teacher, with a suggested fallback), parent-ready WhatsApp message.
 - **Requests** — leave, maintenance, equipment and confidential requests; status and principal note; separate from public notices.
 - **Notices** — priority filters, pinned/urgent sections, expandable feed.
 - **School directory** — searchable faculty and staff list with role, department, email/phone actions, teaching load and assessment duties; filter for teachers or office/support staff.
@@ -290,6 +290,7 @@ POST   /api/maintenance/prune           (SuperAdmin, dry run by default)
 
 POST   /api/students
 PATCH  /api/students/:id
+PATCH  /api/students/:id/remark
 DELETE /api/students/:id
 POST   /api/students/bulk
 
@@ -724,6 +725,8 @@ npm run test:scale                          # 1,000 students / 50 teaching staff
 npm run test:maintenance                    # retention and audit-log pruning helpers
 npm run test:maintenance:api                # retention dry-run/commit endpoint, isolated
 npm run test:state-patch                    # client-side patch merge in both PWAs
+npm run test:remark                         # teacher remark API + permissions, isolated
+npm run test:remark:ui                      # edit/save/reset a remark in the teacher UI
 node server/test/profile-photo.e2e.mjs      # needs dev servers running
 node server/test/profile-ui.e2e.mjs
 node server/test/live-sync.e2e.mjs

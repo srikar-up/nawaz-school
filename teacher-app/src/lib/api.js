@@ -160,6 +160,8 @@ export const api = {
       method: 'POST',
       body: { chapterIndex, status },
     }),
+  saveReportRemark: (_staffId, studentId, text) =>
+    request(`/api/students/${studentId}/remark`, { method: 'PATCH', body: { text } }),
   createAssignment: (_staffId, payload) =>
     request('/api/assignments', { method: 'POST', body: payload }),
   updateAssignment: (_staffId, assignmentId, payload) =>
