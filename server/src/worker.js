@@ -47,21 +47,25 @@ async function ensureBooted() {
 
 export default {
   async fetch(request, env, context) {
-    try {
-      await ensureBooted();
-    } catch (error) {
-      console.error('[boot]', error.message);
-      return new Response(
-        JSON.stringify({ error: 'The school server is starting up. Try again in a moment.' }),
-        {
-          status: 503,
-          headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': request.headers.get('origin') || '*',
-            'Cache-Control': 'no-store',
-          },
-        }
-      );
+    // CORS preflights carry no credentials and need no database, so never let a
+    // slow boot block them - otherwise the browser reports a CORS failure.
+    if (request.method !== 'OPTIONS') {
+      try {
+        await ensureBooted();
+      } catch (error) {
+        console.error('[boot]', error.message);
+        return new Response(
+          JSON.stringify({ error: 'The school server is starting up. Try again in a moment.' }),
+          {
+            status: 503,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': request.headers.get('origin') || '*',
+              'Cache-Control': 'no-store',
+            },
+          }
+        );
+      }
     }
 
     const response = await handler.fetch(request, env, context);

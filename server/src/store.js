@@ -133,6 +133,11 @@ export async function initStoreAsync({ force = false } = {}) {
     await queueFirestoreSync();
     return db;
   } catch (error) {
+    // Never serve seed data from a Worker: a mutation would then overwrite the
+    // real Firestore database. Fail the request instead and let it retry.
+    if (String(process.env.RUNTIME || '') === 'workers') {
+      throw new Error(`Firestore is unavailable: ${error.message}`);
+    }
     console.warn(`[firestore] boot failed (${error.message}); falling back to local JSON.`);
     return initStore({ force });
   }

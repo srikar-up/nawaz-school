@@ -1793,8 +1793,13 @@ app.use('/api', (req, res) => {
 
 const teacherDist = path.join(ROOT, 'teacher-app', 'dist');
 const adminDist = path.join(ROOT, 'admin-panel', 'dist');
+const IS_WORKERS = String(process.env.RUNTIME || '') === 'workers';
 
 function mountSpa(basePath, distDir, label) {
+  // In production the two PWAs are their own Workers; the API owns no static
+  // files and must never try to read them (Workers have no project filesystem).
+  if (IS_WORKERS) return;
+
   // index:false so the handler below can rewrite root-absolute asset URLs.
   app.use(basePath, express.static(distDir, { index: false }));
 
@@ -1830,10 +1835,22 @@ function mountSpa(basePath, distDir, label) {
 mountSpa('/teacher', teacherDist, 'Teacher app');
 mountSpa('/admin', adminDist, 'Admin panel');
 
-app.use(express.static(path.join(__dirname, '../public')));
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, '../public/index.html'));
-});
+if (IS_WORKERS) {
+  app.get('/', (req, res) => {
+    res.json({
+      service: 'Nawaz School API',
+      status: 'ok',
+      docs: '/api/health',
+      teacherApp: 'https://nawaz-school-teacher.srikarsensai.workers.dev',
+      adminPanel: 'https://nawaz-school-admin.srikarsensai.workers.dev',
+    });
+  });
+} else {
+  app.use(express.static(path.join(__dirname, '../public')));
+  app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, '../public/index.html'));
+  });
+}
 
 app.use((error, req, res, next) => {
   console.error('[api]', error);

@@ -21,6 +21,25 @@ let serviceAccountCache;
 let accessToken = null;
 let accessTokenExpiresAt = 0;
 
+/**
+ * Fetch with a hard timeout and one retry.
+ *
+ * A stalled connection from a Worker to Google used to hang the whole boot and
+ * turn every request into a 503. Bounding each call keeps cold starts finite.
+ */
+async function googleFetch(url, options = {}, timeoutMs = 10_000) {
+  let lastError;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      return await fetch(url, { ...options, signal: AbortSignal.timeout(timeoutMs) });
+    } catch (error) {
+      lastError = error;
+      if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+  throw new Error(`Google API unreachable: ${lastError?.message || lastError}`);
+}
+
 function serviceAccount() {
   if (serviceAccountCache !== undefined) return serviceAccountCache;
 
@@ -100,14 +119,14 @@ async function mintAccessToken() {
 
   const assertion = `${unsigned}.${base64Url(new Uint8Array(signature))}`;
 
-  const response = await fetch(TOKEN_URL, {
+  const response = await googleFetch(TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
       assertion,
     }),
-  });
+  }, 8_000);
 
   const body = await response.json().catch(() => ({}));
   if (!response.ok || !body.access_token) {
@@ -176,7 +195,7 @@ function documentName(path) {
 
 async function firestoreFetch(path, options = {}) {
   const token = await googleAccessToken();
-  const response = await fetch(`${FIRESTORE_BASE}/${path}`, {
+  const response = await googleFetch(`${FIRESTORE_BASE}/${path}`, {
     ...options,
     headers: {
       Authorization: `Bearer ${token}`,
@@ -276,13 +295,14 @@ export async function lookupIdToken(idToken) {
   const apiKey = process.env.FIREBASE_API_KEY;
   if (!apiKey) throw new Error('FIREBASE_API_KEY is not set on this Worker.');
 
-  const response = await fetch(
+  const response = await googleFetch(
     `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ idToken }),
-    }
+    },
+    8_000
   );
 
   const body = await response.json().catch(() => ({}));

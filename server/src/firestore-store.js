@@ -41,10 +41,14 @@ export function isFirestoreEnabled() {
 /** Returns the stored database, or null when Firestore has never been seeded. */
 export async function loadDbFromFirestore() {
   const root = adminDb().collection(FIRESTORE_ROOT);
-  const metaSnap = await root.doc('meta').get();
-  if (!metaSnap.exists) return null;
 
-  const snaps = await Promise.all(COLLECTION_KEYS.map((key) => root.doc(key).get()));
+  // One parallel round trip instead of meta-then-collections: every cold start
+  // hydrates from here, so the extra serial hop is pure latency.
+  const [metaSnap, ...snaps] = await Promise.all([
+    root.doc('meta').get(),
+    ...COLLECTION_KEYS.map((key) => root.doc(key).get()),
+  ]);
+  if (!metaSnap.exists) return null;
 
   const result = { meta: metaSnap.data() };
   COLLECTION_KEYS.forEach((key, index) => {

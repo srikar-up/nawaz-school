@@ -596,6 +596,17 @@ Identity Toolkit). The Node server keeps using the real Admin SDK.
 in-memory database is hydrated from Firestore on the first request, and
 `context.waitUntil(flushStore())` keeps each mutation alive until it is written.
 
+Cold-start safeguards, because a Worker call is the first request a teacher makes:
+
+- `OPTIONS` preflights never wait for the database, so CORS cannot fail during a
+  slow boot.
+- Every Google call has an 8–10s timeout and one retry.
+- Boot is capped at 20s and returns `503` (with CORS headers) instead of hanging.
+- A Worker never falls back to seed data when Firestore is unreachable: a later
+  mutation would overwrite the real database. Node keeps its JSON fallback.
+- `/` on the API Worker returns a JSON description instead of trying to read
+  project files that do not exist in the Workers runtime.
+
 ### Local Workers runtime
 
 ```bash
