@@ -10,6 +10,7 @@ import AttendanceRegistry from './pages/AttendanceRegistry';
 import Students from './pages/Students';
 import Staff from './pages/Staff';
 import Classes from './pages/Classes';
+import Curriculum from './pages/Curriculum';
 import Timetable from './pages/Timetable';
 import Exams from './pages/Exams';
 import Assignments from './pages/Assignments';
@@ -39,6 +40,7 @@ export default function App() {
               <Route path="/students" element={<Students />} />
               <Route path="/staff" element={<Staff />} />
               <Route path="/classes" element={<Classes />} />
+              <Route path="/curriculum" element={<Curriculum />} />
               <Route path="/timetable" element={<Timetable />} />
               <Route path="/exams" element={<Exams />} />
               <Route path="/assignments" element={<Assignments />} />

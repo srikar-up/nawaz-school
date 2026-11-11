@@ -185,7 +185,12 @@ export default function Classes() {
                 <h2>Subject offerings</h2>
                 <p>Assign a teacher to each subject in {selectedClass?.displayName}.</p>
               </div>
-              <Badge tone="brand">{subjects.length} subjects</Badge>
+              <div className="subject-head-actions">
+                <Badge tone="brand">{subjects.length} subjects</Badge>
+                <Link to="/curriculum" className="admin-btn admin-btn-secondary admin-btn-sm">
+                  <BookOpen size={14} /> Manage curriculum
+                </Link>
+              </div>
             </div>
             <div className="subject-offering-list">
               {subjects.map((subject) => {

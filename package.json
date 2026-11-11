@@ -32,6 +32,9 @@
     "test:attendance:flow": "node server/test/attendance-flow.e2e.mjs",
     "test:polish": "node server/test/polish-ui.e2e.mjs",
     "test:photo": "node server/test/photo-crop.e2e.mjs",
+    "test:curriculum": "node --test server/test/curriculum.test.mjs",
+    "test:curriculum:api": "node server/test/curriculum.e2e.mjs",
+    "test:curriculum:ui": "node server/test/curriculum-ui.e2e.mjs",
     "test:production": "node server/test/production.e2e.mjs"
   },
   "devDependencies": {

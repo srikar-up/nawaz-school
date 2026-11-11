@@ -96,6 +96,7 @@ All apps also expose one-click demo buttons on their sign-in screens.
 - **Students** — searchable/filterable/paginated directory, add/edit/delete, CSV import and export, student detail drawer with attendance and scores.
 - **Staff & access** — SuperAdmin-only directory, roles and access levels, staff profile, create/edit/delete, attendance status, self-protection rules.
 - **Classes & subjects** — class selector, subject-teacher assignment with instant timetable propagation, syllabus progress, full weekly timetable grid with a link into the builder.
+- **Curriculum & syllabus** — one shared syllabus per class standard (for example Grade 10 Mathematics) with a subject × section coverage matrix. Create a subject with chapters, share it with every section of the grade, or add it to the missing sections later. Chapters can be typed, pasted as a plain numbered list, or pasted as JSON; a **Copy prompt** button produces a ready-made prompt for a syllabus photo in any AI chat, and the JSON reply fills the editor. Editing a curriculum updates every section while keeping each section's chapter progress by chapter name. Includes a typed-table test suite, an isolated API test and an admin UI test.
 - **Timetable builder** — principal/admin weekly editor for every class. Configure working days Monday–Friday or Monday–Saturday, add/remove periods, edit start/end times, assign subject/teacher/room per slot, detect teacher and class clashes before save, keep the draft editable through Sunday, and publish/reopen when final.
 - **Exams & marks** — schedule/delete assessments, statuses, result matrix, grade distribution, CSV export, pass/fail summaries.
 - **Assignments** — cross-school assignment table, status changes, create/delete.
@@ -218,6 +219,11 @@ POST   /api/exams/:id/marks
 
 PATCH  /api/subjects/:id
 POST   /api/subjects/:id/chapters
+
+POST   /api/curricula
+PATCH  /api/curricula/:id
+POST   /api/curricula/:id/apply
+DELETE /api/curricula/:id
 
 POST   /api/assignments
 PATCH  /api/assignments/:id
@@ -446,6 +452,9 @@ npm run test:attendance:ui    # teacher + admin mode UI (dev servers needed)
 npm run test:attendance:flow  # full-day submit, isolated API + teacher build
 npm run test:photo           # profile photo crop/preview/upload, isolated
 npm run test:polish          # unsaved guard, help dialog, full-day topbar (dev servers)
+npm run test:curriculum      # curriculum rules and AI/JSON pasting
+npm run test:curriculum:api  # curriculum API on an isolated instance
+npm run test:curriculum:ui   # curriculum admin page on an isolated instance
 ```
 
 For the visual prototype and design rationale, see `target.md` (the UI/UX design
@@ -564,6 +573,38 @@ Rules:
   `admin-panel/src/lib/attendance.js`; a unit test checks the three stay in
   sync.
 
+### Curriculum and syllabus
+
+A **curriculum** is the syllabus for one class standard, for example Grade 10
+Mathematics. It is stored in the `curricula` collection and shared by every
+section of that grade, while each section keeps its own subject offering in
+`subjects` so teachers can track chapter progress separately.
+
+- **Admin → Curriculum** shows a subject × section coverage matrix. Green means
+  the subject already exists in that section; amber means it is missing.
+- Creating a subject can immediately add it to every section of the grade.
+  Existing teacher assignments are kept.
+- Chapters can be typed one per line, pasted as a numbered list, or pasted as
+  JSON. The editor accepts:
+  - `["Chapter 1", "Chapter 2"]`
+  - `[{ "title": "Chapter 1" }]`
+  - `{ "subjectName": "Mathematics", "chapters": [...] }`
+- **Copy prompt** copies an instruction block for any AI chat. Attach the
+  syllabus photo there, paste the reply into the JSON box, then press
+  **Fill chapters from this**. Nothing is sent to an AI service from the app.
+- Editing a curriculum updates every linked class offering. Chapter progress is
+  matched by chapter title, so reordering or renaming other chapters does not
+  reset completed work; new chapters start as not started.
+- Renaming a subject also updates timetable, exam and assignment labels that
+  point at it.
+- Removing a curriculum removes it from the standard only. Class subject cards,
+  chapters and teacher assignments stay.
+- The teacher **Syllabus** screen reads the same class offerings, so a teacher
+  sees new chapters after the admin shares or edits the curriculum.
+- Existing databases are migrated once at boot: shared curricula are derived
+  from the current class subjects and `meta.curriculaSeeded` prevents the
+  migration from running again.
+
 ### Tests
 
 ```
@@ -575,6 +616,9 @@ npm run test:attendance:ui                  # teacher + admin UI, needs dev serv
 npm run test:attendance:flow                # full-day submit through the teacher UI, isolated
 npm run test:photo                          # crop/preview/upload, isolated API + Cloudinary folder
 npm run test:polish                         # unsaved-attendance guard, help dialog, full-day topbar
+npm run test:curriculum                     # curriculum rules + AI/JSON parsing
+npm run test:curriculum:api                 # curriculum API, isolated :4100
+npm run test:curriculum:ui                  # admin curriculum page, isolated API + Vite
 node server/test/profile-photo.e2e.mjs      # needs dev servers running
 node server/test/profile-ui.e2e.mjs
 node server/test/live-sync.e2e.mjs

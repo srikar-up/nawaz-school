@@ -30,6 +30,18 @@ import {
   sessionTypesFor,
 } from './attendance-mode.js';
 import {
+  applyCurriculumToOffering,
+  defaultSubjectCode,
+  findOffering,
+  gradeOfClass,
+  gradeOfClassId,
+  mergeChapterProgress,
+  normalizeChapters,
+  normalizeGrade,
+  normalizeName,
+  slugify,
+} from './curriculum.js';
+import {
   dayName,
   getTimetableConfig,
   isDateString,
@@ -1159,6 +1171,282 @@ app.post('/api/exams/:id/marks', requireActor, (req, res) => {
 /* Subjects and syllabus                                              */
 /* ------------------------------------------------------------------ */
 
+function uniqueSubjectId(subjects, classIdSection, code, name) {
+  const base = `sub-${String(classIdSection).toLowerCase()}-${slugify(code) || slugify(name) || 'subject'}`;
+  if (!subjects.some((subject) => subject.id === base)) return base;
+  let suffix = 2;
+  while (subjects.some((subject) => subject.id === `${base}-${suffix}`)) suffix += 1;
+  return `${base}-${suffix}`;
+}
+
+/** Creates or refreshes the offering for one section. */
+function applyCurriculumToSection(current, curriculum, classIdSection) {
+  const existing = findOffering(current.subjects, curriculum, classIdSection);
+  if (existing) {
+    applyCurriculumToOffering(existing, curriculum);
+    return { created: false, offering: existing };
+  }
+
+  const offering = {
+    id: uniqueSubjectId(current.subjects, classIdSection, curriculum.subjectCode, curriculum.subjectName),
+    classIdSection,
+    assignedStaffId: '',
+    assignedTeacherName: 'Unassigned',
+    chapters: [],
+  };
+  applyCurriculumToOffering(offering, curriculum);
+  current.subjects.push(offering);
+  return { created: true, offering };
+}
+
+function curriculumSections(db, gradeLevel) {
+  return db.classes.filter((cls) => gradeOfClass(cls) === gradeLevel).map((cls) => cls.id);
+}
+
+app.post('/api/curricula', requireActor, requireAdmin, (req, res) => {
+  const db = getDb();
+  const body = req.body || {};
+  const gradeLevel = normalizeGrade(body.gradeLevel);
+  if (!gradeLevel) {
+    return res.status(400).json({ error: 'Choose the class standard for this subject.' });
+  }
+  if (!curriculumSections(db, gradeLevel).length) {
+    return res.status(400).json({ error: `There are no Grade ${gradeLevel} classes yet.` });
+  }
+
+  const subjectName = str(body.subjectName);
+  if (subjectName.length < 2) {
+    return res.status(400).json({ error: 'Enter the subject name.' });
+  }
+  if (subjectName.length > 80) {
+    return res.status(400).json({ error: 'Keep the subject name under 80 characters.' });
+  }
+
+  const normalized = normalizeChapters(body.chapters);
+  if (normalized.error) return res.status(400).json({ error: normalized.error });
+
+  if (
+    db.curricula.some(
+      (entry) =>
+        entry.gradeLevel === gradeLevel &&
+        normalizeName(entry.subjectName) === normalizeName(subjectName)
+    )
+  ) {
+    return res
+      .status(400)
+      .json({ error: `${subjectName} is already set up for Grade ${gradeLevel}.` });
+  }
+
+  const sections = Array.isArray(body.sections) && body.sections.length
+    ? body.sections.map((value) => str(value))
+    : [];
+  const validSections = curriculumSections(db, gradeLevel);
+  const invalidSection = sections.find((section) => !validSections.includes(section));
+  if (invalidSection) {
+    return res
+      .status(400)
+      .json({ error: `${invalidSection} is not a Grade ${gradeLevel} section.` });
+  }
+
+  const subjectCode =
+    str(body.subjectCode).slice(0, 24) || defaultSubjectCode(gradeLevel, subjectName);
+  const curriculum = {
+    id: `cur-${gradeLevel}-${slugify(subjectName)}`,
+    gradeLevel,
+    subjectName,
+    subjectCode,
+    isLab: Boolean(body.isLab),
+    chapters: normalized.chapters,
+    updatedAt: isoNow(),
+  };
+
+  let created = 0;
+  let updated = 0;
+  mutate((current) => {
+    if (current.curricula.some((entry) => entry.id === curriculum.id)) {
+      curriculum.id = `${curriculum.id}-${current.curricula.length + 1}`;
+    }
+    current.curricula.push(curriculum);
+    sections.forEach((section) => {
+      const result = applyCurriculumToSection(current, curriculum, section);
+      if (result.created) created += 1;
+      else updated += 1;
+    });
+    addActivity(
+      current,
+      req.actor,
+      'Created class curriculum',
+      'Curriculum',
+      curriculum.id,
+      `Grade ${gradeLevel} ${subjectName} · ${normalized.chapters.length} chapters`
+    );
+  });
+
+  return res.status(201).json({ curriculum, created, updated });
+});
+
+app.patch('/api/curricula/:id', requireActor, requireAdmin, (req, res) => {
+  const db = getDb();
+  const curriculum = db.curricula.find((entry) => entry.id === req.params.id);
+  if (!curriculum) return res.status(404).json({ error: 'Curriculum subject not found.' });
+
+  const body = req.body || {};
+  const subjectName =
+    body.subjectName === undefined ? curriculum.subjectName : str(body.subjectName);
+  if (subjectName.length < 2) {
+    return res.status(400).json({ error: 'Enter the subject name.' });
+  }
+  if (subjectName.length > 80) {
+    return res.status(400).json({ error: 'Keep the subject name under 80 characters.' });
+  }
+
+  if (
+    normalizeName(subjectName) !== normalizeName(curriculum.subjectName) &&
+    db.curricula.some(
+      (entry) =>
+        entry.id !== curriculum.id &&
+        entry.gradeLevel === curriculum.gradeLevel &&
+        normalizeName(entry.subjectName) === normalizeName(subjectName)
+    )
+  ) {
+    return res
+      .status(400)
+      .json({ error: `${subjectName} is already set up for Grade ${curriculum.gradeLevel}.` });
+  }
+
+  let chapters = curriculum.chapters;
+  if (body.chapters !== undefined) {
+    const normalized = normalizeChapters(body.chapters);
+    if (normalized.error) return res.status(400).json({ error: normalized.error });
+    chapters = normalized.chapters;
+  }
+
+  const subjectCode =
+    body.subjectCode === undefined
+      ? curriculum.subjectCode
+      : str(body.subjectCode).slice(0, 24) ||
+        defaultSubjectCode(curriculum.gradeLevel, subjectName);
+  const isLab = body.isLab === undefined ? curriculum.isLab : Boolean(body.isLab);
+  const previousName = curriculum.subjectName;
+
+  let updated = 0;
+  mutate((current) => {
+    const target = current.curricula.find((entry) => entry.id === curriculum.id);
+    target.subjectName = subjectName;
+    target.subjectCode = subjectCode;
+    target.isLab = isLab;
+    target.chapters = chapters;
+    target.updatedAt = isoNow();
+
+    const linked = current.subjects.filter(
+      (subject) =>
+        subject.curriculumId === target.id ||
+        (gradeOfClassId(subject.classIdSection) === target.gradeLevel &&
+          normalizeName(subject.subjectName) === normalizeName(previousName))
+    );
+
+    linked.forEach((subject) => {
+      applyCurriculumToOffering(subject, target);
+
+      current.timetable.forEach((period) => {
+        if (period.subjectId !== subject.id) return;
+        period.subject = subject.subjectName;
+        period.subjectCode = subject.subjectCode;
+        period.isLab = subject.isLab;
+      });
+
+      current.exams.forEach((exam) => {
+        if (exam.subjectId !== subject.id) return;
+        exam.subject = subject.subjectName;
+      });
+    });
+
+    if (normalizeName(previousName) !== normalizeName(subjectName)) {
+      current.assignments.forEach((assignment) => {
+        if (
+          assignment.classIdSection &&
+          linked.some((subject) => subject.classIdSection === assignment.classIdSection) &&
+          normalizeName(assignment.subject) === normalizeName(previousName)
+        ) {
+          assignment.subject = subjectName;
+        }
+      });
+    }
+
+    updated = linked.length;
+    addActivity(
+      current,
+      req.actor,
+      'Updated class curriculum',
+      'Curriculum',
+      target.id,
+      `Grade ${target.gradeLevel} ${subjectName} · ${chapters.length} chapters`
+    );
+  });
+
+  return res.json({
+    curriculum: getDb().curricula.find((entry) => entry.id === curriculum.id),
+    updated,
+  });
+});
+
+app.post('/api/curricula/:id/apply', requireActor, requireAdmin, (req, res) => {
+  const db = getDb();
+  const curriculum = db.curricula.find((entry) => entry.id === req.params.id);
+  if (!curriculum) return res.status(404).json({ error: 'Curriculum subject not found.' });
+
+  const validSections = curriculumSections(db, curriculum.gradeLevel);
+  const requested = Array.isArray(req.body?.sections) && req.body.sections.length
+    ? req.body.sections.map((value) => str(value))
+    : validSections;
+  const invalid = requested.find((section) => !validSections.includes(section));
+  if (invalid) {
+    return res
+      .status(400)
+      .json({ error: `${invalid} is not a Grade ${curriculum.gradeLevel} section.` });
+  }
+
+  let created = 0;
+  let updated = 0;
+  mutate((current) => {
+    requested.forEach((section) => {
+      const result = applyCurriculumToSection(current, curriculum, section);
+      if (result.created) created += 1;
+      else updated += 1;
+    });
+    addActivity(
+      current,
+      req.actor,
+      'Applied curriculum to sections',
+      'Curriculum',
+      curriculum.id,
+      `Grade ${curriculum.gradeLevel} ${curriculum.subjectName} · ${requested.join(', ')}`
+    );
+  });
+
+  return res.json({ curriculum, sections: requested, created, updated });
+});
+
+app.delete('/api/curricula/:id', requireActor, requireAdmin, (req, res) => {
+  const db = getDb();
+  const curriculum = db.curricula.find((entry) => entry.id === req.params.id);
+  if (!curriculum) return res.status(404).json({ error: 'Curriculum subject not found.' });
+
+  mutate((current) => {
+    current.curricula = current.curricula.filter((entry) => entry.id !== curriculum.id);
+    addActivity(
+      current,
+      req.actor,
+      'Removed class curriculum',
+      'Curriculum',
+      curriculum.id,
+      `Grade ${curriculum.gradeLevel} ${curriculum.subjectName} · class subjects were kept`
+    );
+  });
+
+  return res.json({ removed: curriculum.id });
+});
+
 app.patch('/api/subjects/:id', requireActor, requireAdmin, (req, res) => {
   const db = getDb();
   const subject = db.subjects.find((entry) => entry.id === req.params.id);
@@ -1587,6 +1875,7 @@ app.post('/api/import', requireActor, requireSuperAdmin, (req, res) => {
     updatedAt: current.meta.updatedAt,
     // A backup may predate the setting, or carry an unsupported value.
     attendanceMode: parseAttendanceMode(merged.meta?.attendanceMode) || current.meta.attendanceMode,
+    curriculaSeeded: true,
   };
 
   // Recalculate derived fields across the whole merged state so partial

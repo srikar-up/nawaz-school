@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildSeed, SCHEMA_VERSION } from './seed.js';
+import { buildCurriculaFromSubjects } from './curriculum.js';
 import {
   FIRESTORE_ROOT,
   isFirestoreEnabled,
@@ -67,6 +68,20 @@ function loadFromDisk() {
 }
 
 /**
+ * One-time migration for databases created before curricula existed.
+ * Derives one shared syllabus per grade + subject from the class offerings and
+ * records a flag so a deliberately emptied curriculum list stays empty.
+ */
+function ensureCurricula(database) {
+  if (database.meta?.curriculaSeeded) return false;
+  if (!Array.isArray(database.curricula) || !database.curricula.length) {
+    database.curricula = buildCurriculaFromSubjects(database.subjects || []);
+  }
+  database.meta = { ...(database.meta || {}), curriculaSeeded: true };
+  return true;
+}
+
+/**
  * Mirrors the in-memory database into Firestore.
  * Serialized through a promise chain so writes never overlap or arrive out of order.
  * Returns the queued promise so callers can await durability.
@@ -99,6 +114,9 @@ export function initStore({ force = false } = {}) {
     db = buildSeed();
     persist();
     console.log(`[data] Seeded ${db.students.length} students, ${db.staff.length} staff.`);
+  } else if (ensureCurricula(db)) {
+    persist();
+    console.log(`[data] Added ${db.curricula.length} grade curricula.`);
   }
   return db;
 }
@@ -119,6 +137,11 @@ export async function initStoreAsync({ force = false } = {}) {
     if (remote && remote.meta?.schemaVersion === SCHEMA_VERSION) {
       db = remote;
       lastSynced = structuredClone(db);
+      if (ensureCurricula(db)) {
+        persist();
+        console.log(`[data] Added ${db.curricula.length} grade curricula.`);
+        await queueFirestoreSync();
+      }
       console.log(
         `[data] Loaded from Firestore - revision ${db.meta.revision}, ${db.students.length} students.`
       );

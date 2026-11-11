@@ -156,6 +156,15 @@ export const api = {
   assignSubjectTeacher: (_staffId, subjectId, assignedStaffId) =>
     request(`/api/subjects/${subjectId}`, { method: 'PATCH', body: { assignedStaffId } }),
 
+  createCurriculum: (_staffId, payload) =>
+    request('/api/curricula', { method: 'POST', body: payload }),
+  updateCurriculum: (_staffId, id, payload) =>
+    request(`/api/curricula/${id}`, { method: 'PATCH', body: payload }),
+  applyCurriculum: (_staffId, id, sections) =>
+    request(`/api/curricula/${id}/apply`, { method: 'POST', body: { sections } }),
+  deleteCurriculum: (_staffId, id) =>
+    request(`/api/curricula/${id}`, { method: 'DELETE' }),
+
   saveTimetableCell: (_staffId, payload) =>
     request('/api/timetable', { method: 'PUT', body: payload }),
   deleteTimetableCell: (_staffId, id) => request(`/api/timetable/${id}`, { method: 'DELETE' }),

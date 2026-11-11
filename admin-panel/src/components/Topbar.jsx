@@ -30,6 +30,7 @@ const TITLES = {
   '/students': 'Students',
   '/staff': 'Staff & access',
   '/classes': 'Classes & subjects',
+  '/curriculum': 'Curriculum',
   '/exams': 'Exams & marks',
   '/assignments': 'Assignments',
   '/announcements': 'Announcements',

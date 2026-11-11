@@ -1,4 +1,5 @@
 import { SCHEMA_VERSION } from './seed.js';
+import { normalizeChapters, normalizeGrade } from './curriculum.js';
 
 export const IMPORT_COLLECTIONS = [
   { key: 'meta', kind: 'object', primaryKey: null },
@@ -20,6 +21,12 @@ export const IMPORT_COLLECTIONS = [
       { field: 'classIdSection', collection: 'classes' },
       { field: 'assignedStaffId', collection: 'staff' },
     ],
+  },
+  {
+    key: 'curricula',
+    kind: 'array',
+    primaryKey: 'id',
+    required: ['id', 'gradeLevel', 'subjectName', 'chapters'],
   },
   {
     key: 'timetable',
@@ -442,6 +449,18 @@ export function validateImportedData(data, { actorId } = {}) {
             );
           }
         });
+      });
+    }
+
+    if (def.key === 'curricula') {
+      rows.forEach((row, index) => {
+        if (!normalizeGrade(row?.gradeLevel)) {
+          push(def.key, index + 1, 'gradeLevel', 'gradeLevel must be a number from 1 to 12.');
+        }
+        const chapters = normalizeChapters(row?.chapters);
+        if (chapters.error) {
+          push(def.key, index + 1, 'chapters', chapters.error);
+        }
       });
     }
   });

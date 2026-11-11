@@ -11,6 +11,7 @@ import {
   GraduationCap,
   Inbox,
   LayoutDashboard,
+  Library,
   Megaphone,
   Monitor,
   Settings,
@@ -45,6 +46,7 @@ export default function Sidebar({ open, onClose }) {
           ? [{ to: '/staff', label: 'Staff & access', icon: GraduationCap }]
           : []),
         { to: '/classes', label: 'Classes & subjects', icon: BookOpenCheck },
+        { to: '/curriculum', label: 'Curriculum', icon: Library },
         { to: '/timetable', label: 'Timetable', icon: CalendarDays },
         { to: '/exams', label: 'Exams & marks', icon: ClipboardCheck },
         { to: '/assignments', label: 'Assignments', icon: ClipboardList },

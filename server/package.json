@@ -17,6 +17,9 @@
                     "test:attendance:flow":  "node test/attendance-flow.e2e.mjs",
                     "test:polish":  "node test/polish-ui.e2e.mjs",
                     "test:photo":  "node test/photo-crop.e2e.mjs",
+                    "test:curriculum":  "node --test test/curriculum.test.mjs",
+                    "test:curriculum:api":  "node test/curriculum.e2e.mjs",
+                    "test:curriculum:ui":  "node test/curriculum-ui.e2e.mjs",
                     "create:users":  "node --env-file-if-exists=.env scripts/create-auth-users.mjs",
                     "test:google":  "node --env-file-if-exists=.env test/google-mapping.e2e.mjs",
                     "deploy":  "wrangler deploy --config wrangler.jsonc"

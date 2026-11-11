@@ -7,6 +7,7 @@
  */
 
 import { upcomingSundayISO } from './timetable.js';
+import { buildCurriculaFromSubjects } from './curriculum.js';
 
 const SCHEMA_VERSION = 1;
 
@@ -1229,11 +1230,13 @@ export function buildSeed() {
       timetableStatus: 'draft',
       timetableEditUntil: upcomingSundayISO(TODAY),
       timetablePublishedAt: null,
+      curriculaSeeded: true,
     },
     staff: STAFF,
     classes,
     students,
     subjects,
+    curricula: buildCurriculaFromSubjects(subjects),
     timetable,
     exams,
     testRecords,

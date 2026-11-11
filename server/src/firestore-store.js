@@ -22,6 +22,7 @@ export const COLLECTION_KEYS = [
   'classes',
   'students',
   'subjects',
+  'curricula',
   'timetable',
   'exams',
   'testRecords',
